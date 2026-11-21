@@ -1,6 +1,7 @@
 #include <doctest.h>
 
 #include <cstring>
+#include <string>
 
 #include "pcg32.h"
 #include "pd/hal/storage.h"
@@ -167,6 +168,60 @@ TEST_CASE("Systemmenü: Weiter und Helligkeit werden gespeichert") {
   os::Settings s;
   REQUIRE(os::loadSettings(s));
   CHECK(s.brightnessLevel == 7);
+}
+
+TEST_CASE("Abschalten: onShutdown, Einstellungen, shutdownReady (SPEC 14.3)") {
+  testhal::reset();
+  testhal::clearStorage();
+  testgame::stats = {};
+  testhal::power.available = true;
+  testhal::onPoll = [](int frame) { testhal::power.shutdownPending = frame >= 10; };
+  CHECK(os::run(direct(60)) == 0);
+  CHECK(testgame::stats.ticks == 10);      // ab dem Abschalt-Signal kein Tick mehr
+  CHECK(testgame::stats.shutdowns == 1);
+  CHECK(testgame::stats.destroyed == 1);
+  CHECK(testhal::shutdownReadyCalls == 1);
+  CHECK(testhal::activity.empty());
+  os::Settings s;
+  CHECK(os::loadSettings(s));
+}
+
+TEST_CASE("Abschalten bleibt aus: nach 3 s zurück in den Launcher") {
+  testhal::reset();
+  testhal::clearStorage();
+  testgame::stats = {};
+  testhal::onPoll = [](int frame) { testhal::power.shutdownPending = frame >= 5 && frame < 8; };
+  CHECK(os::run(direct(400)) == 0);
+  CHECK(testgame::stats.ticks == 5);
+  CHECK(testhal::shutdownReadyCalls == 1);
+}
+
+TEST_CASE("Aktivität: Spiel-id während des Spiels, danach leer") {
+  testhal::reset();
+  testhal::clearStorage();
+  static std::string during;
+  testhal::onPoll = [](int frame) { if (frame == 3) during = testhal::activity; };
+  CHECK(os::run(direct(10)) == 0);
+  CHECK(during == "testgame");
+  CHECK(testhal::activity.empty());
+}
+
+TEST_CASE("Hinweis nach Absturz verdeckt das Spiel, A schließt ihn (SPEC 14.2)") {
+  testhal::reset();
+  testhal::clearStorage();
+  testgame::stats = {};
+  testhal::nextReset.cause = hal::app::ResetCause::Crash;
+  std::strcpy(testhal::nextReset.gameId, "testgame");
+  testhal::onPoll = [](int frame) { testhal::device.state.buttons = frame >= 5 ? A : 0; };
+  CHECK(os::run(direct(30)) == 0);
+  CHECK(testgame::stats.ticks == 24);  // Ticks 0-5 gehören dem Hinweis
+
+  // ohne Tastendruck: 5 s Anzeige
+  testhal::reset();
+  testgame::stats = {};
+  testhal::nextReset.cause = hal::app::ResetCause::Hang;
+  CHECK(os::run(direct(100)) == 0);
+  CHECK(testgame::stats.ticks == 0);
 }
 
 TEST_CASE("PCG32 Referenzwerte") {

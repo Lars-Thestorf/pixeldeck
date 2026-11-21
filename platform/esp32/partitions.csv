@@ -1,0 +1,5 @@
+# pixeldeck, 8 MB Flash. NVS für Spielstände/Einstellungen (SPEC 8.2), kein OTA.
+# Name,   Type, SubType, Offset,   Size
+nvs,      data, nvs,     0x9000,   0x20000
+phy_init, data, phy,     0x29000,  0x1000
+factory,  app,  factory, 0x30000,  0x300000

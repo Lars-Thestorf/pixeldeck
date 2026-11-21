@@ -11,6 +11,7 @@
 #include "pd/hal/display.h"
 #include "pd/hal/input.h"
 #include "pd/hal/log.h"
+#include "pd/hal/power.h"
 #include "pd/hal/random.h"
 #include "pd/hal/time.h"
 #include "pd/input.h"
@@ -274,6 +275,16 @@ uint32_t seed() {
 namespace app {
 
 bool quitRequested() { return g.quit; }
+void heartbeat() {}
+void setActivity(const char*) {}
+LastReset lastReset() { return LastReset{ResetCause::None, {}}; }
 
 }  // namespace app
+
+namespace power {
+
+PowerState read() { return PowerState{false, 0, 0, false, false}; }  // kein Akku am PC
+void shutdownReady() {}
+
+}  // namespace power
 }  // namespace pd::hal

@@ -110,6 +110,7 @@ void Runtime::startGame(const GameInfo& info) {
 
   logf(LogLevel::Info, "Starte '%s' (seed %u)", meta.id, unsigned(seed));
   info_ = &info;
+  hal::app::setActivity(meta.id);  // ab hier gehen Hänger/Abstürze auf das Spiel
   {
     GameCodeScope scope;
     game_ = info.create(mem);
@@ -128,6 +129,7 @@ void Runtime::endGame() {
     game_->~Game();
   }
   game_ = nullptr;
+  hal::app::setActivity(nullptr);
   const char* id = info_->meta.id;
   const size_t peak = arena_.peak(), cap = arena_.capacity();
   const unsigned pct = unsigned(peak * 100 / cap);
@@ -156,6 +158,77 @@ void Runtime::closeMenu() {
   if (!menuOpen_) return;
   menuOpen_ = false;
   saveSettings(settings_);
+}
+
+// --- Hinweis nach Watchdog-Reset oder Absturz (SPEC 14.2, 12.3) ---------------
+
+void Runtime::showResetNotice() {
+  const hal::app::LastReset r = hal::app::lastReset();
+  if (r.cause == hal::app::ResetCause::None) return;
+  char id[sizeof r.gameId];
+  std::memcpy(id, r.gameId, sizeof id);
+  id[sizeof id - 1] = 0;
+  const GameInfo* g = id[0] ? findGame(id) : nullptr;
+  const char* name = g ? g->meta.name : (id[0] ? id : "SYSTEM");
+  std::snprintf(notice_[0], sizeof notice_[0], "%s", name);
+  for (char* c = notice_[0]; *c; ++c)
+    if (*c >= 'a' && *c <= 'z') *c = char(*c - 'a' + 'A');
+  if (r.cause == hal::app::ResetCause::Hang) {
+    std::snprintf(notice_[1], sizeof notice_[1], "HAT NICHT");
+    std::snprintf(notice_[2], sizeof notice_[2], "REAGIERT");
+  } else {
+    std::snprintf(notice_[1], sizeof notice_[1], "ABGESTUERZT");
+    notice_[2][0] = 0;
+  }
+  noticeTicks_ = 5 * PD_TICK_HZ;
+  logf(LogLevel::Warn, "Letzter Neustart: %s %s %s", notice_[0], notice_[1], notice_[2]);
+}
+
+// true, solange der Hinweis angezeigt wird. A, B oder Start schließt ihn.
+bool Runtime::tickNotice() {
+  if (noticeTicks_ == 0) return false;
+  Player& p = input_.player(0);
+  if (p.pressed(Button::A) || p.pressed(Button::B) || p.pressed(Button::Start)) {
+    noticeTicks_ = 0;
+    gfx_.clear();
+    return true;  // Tastendruck gehört noch zum Hinweis
+  }
+  --noticeTicks_;
+  gfx_.clear();
+  constexpr uint16_t kRed = rgb(255, 60, 40);
+  int y = notice_[2][0] ? 7 : 10;
+  for (const char* line : notice_) {
+    if (!line[0]) continue;
+    gfx_.text((Gfx::W - gfx_.textWidth(line)) / 2, y, line, line == notice_[0] ? color::WHITE : kRed);
+    y += 7;
+  }
+  return true;
+}
+
+// --- Abschalten (SPEC 14.3) -----------------------------------------------------
+
+void Runtime::beginShutdown() {
+  logf(LogLevel::Info, "Abschalten angefordert");
+  shuttingDown_ = true;
+  shutdownIdleTicks_ = 0;
+  menuOpen_ = false;
+  noticeTicks_ = 0;
+  if (game_) endGame();  // ruft onShutdown() des Spiels
+  saveSettings(settings_);
+  gfx_.clear();
+  gfx_.text((Gfx::W - gfx_.textWidth("BYE", Font::Large)) / 2, 12, "BYE", color::WHITE, Font::Large);
+  hal::power::shutdownReady();
+}
+
+// Wartet auf das Abschalten. Kommt es nicht (Taste nur kurz, Strom bleibt),
+// geht es nach 3 s zurück in den Launcher.
+void Runtime::tickShutdown() {
+  if (power_.shutdownPending) shutdownIdleTicks_ = 0;
+  else if (++shutdownIdleTicks_ >= 3u * PD_TICK_HZ) {
+    logf(LogLevel::Info, "Abschalten ist ausgeblieben, zurück zum Launcher");
+    shuttingDown_ = false;
+    launcher_.enter();
+  }
 }
 
 void Runtime::processRequests() {
@@ -222,6 +295,10 @@ int Runtime::run(const RunOptions& opts) {
   settings_ = Settings{};
   loadSettings(settings_);
   setBrightnessLevel(settings_.brightnessLevel);
+  shuttingDown_ = false;
+  noticeTicks_ = 0;
+  hal::app::setActivity(nullptr);
+  showResetNotice();
 
   osCtx_.tick_ = 0;
   Pcg32::seed(osCtx_.rngState_, osCtx_.rngInc_, hal::random::seed(), kPcgStream);
@@ -243,8 +320,15 @@ int Runtime::run(const RunOptions& opts) {
     inputSys_.update(input_, gameView ? info_->meta.maxPlayers : 1,
                      gameView ? info_->meta.stickAsDpad : true);
     if (hal::app::quitRequested()) break;
+    hal::app::heartbeat();
+    power_ = hal::power::read();
+    if (power_.shutdownPending && !shuttingDown_) beginShutdown();
 
-    if (inputSys_.menuComboTriggered()) {
+    if (shuttingDown_) {
+      tickShutdown();
+    } else if (tickNotice()) {
+      // Hinweis nach Neustart verdeckt Launcher bzw. Direktstart
+    } else if (inputSys_.menuComboTriggered()) {
       if (menuOpen_) closeMenu();
       else openMenu();
     } else if (menuOpen_) {

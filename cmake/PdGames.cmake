@@ -5,6 +5,34 @@
 # übereinstimmen (per static_assert geprüft). Ergebnis:
 #   PD_GAME_TARGETS  - Liste der Spiel-Bibliotheken
 #   PD_GAME_REGISTRY - Pfad der generierten game_registry.cpp
+#
+# Wird vom PC-Build und vom IDF-Projekt (platform/esp32) eingebunden.
+
+get_filename_component(PD_ROOT ${CMAKE_CURRENT_LIST_DIR}/.. ABSOLUTE)
+
+# Python mit Pillow für den Asset-Konverter. Das IDF-venv hat kein Pillow; dann wird
+# ein System-Python gesucht. Vorgabe per -DPD_ASSET_PYTHON=<pfad> möglich.
+function(pd_find_asset_python)
+  if(PD_ASSET_PYTHON)
+    return()
+  endif()
+  find_package(Python3 QUIET COMPONENTS Interpreter)
+  set(candidates ${Python3_EXECUTABLE})
+  find_program(sys_py NAMES python3 PATHS /usr/bin /usr/local/bin /opt/homebrew/bin NO_DEFAULT_PATH)
+  list(APPEND candidates ${sys_py})
+  find_program(path_py NAMES python3 python)
+  list(APPEND candidates ${path_py})
+  foreach(py IN LISTS candidates)
+    execute_process(COMMAND ${py} -c "import PIL" RESULT_VARIABLE rc OUTPUT_QUIET ERROR_QUIET)
+    if(rc EQUAL 0)
+      set(PD_ASSET_PYTHON ${py} CACHE FILEPATH "Python 3 mit Pillow für tools/pd_assets.py")
+      message(STATUS "pixeldeck: Asset-Konverter mit ${py}")
+      return()
+    endif()
+  endforeach()
+  message(FATAL_ERROR "Kein Python 3 mit Pillow gefunden (pip install pillow) "
+                      "oder -DPD_ASSET_PYTHON=<pfad> setzen")
+endfunction()
 function(pd_add_game id dir)
   file(GLOB_RECURSE srcs CONFIGURE_DEPENDS ${dir}/*.cpp)
   file(GLOB pngs CONFIGURE_DEPENDS ${dir}/assets/*.png)
@@ -16,8 +44,8 @@ function(pd_add_game id dir)
   set(hdr ${gen_dir}/${id}_assets.h)
   add_custom_command(
     OUTPUT ${hdr}
-    COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/pd_assets.py --out ${hdr} ${pngs}
-    DEPENDS ${pngs} ${PROJECT_SOURCE_DIR}/tools/pd_assets.py
+    COMMAND ${PD_ASSET_PYTHON} ${PD_ROOT}/tools/pd_assets.py --out ${hdr} ${pngs}
+    DEPENDS ${pngs} ${PD_ROOT}/tools/pd_assets.py
     COMMENT "Assets ${id}"
     VERBATIM)
   add_library(pd_game_${id} STATIC ${srcs} ${hdr})
@@ -27,7 +55,7 @@ function(pd_add_game id dir)
 endfunction()
 
 function(pd_collect_games games_dir)
-  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  pd_find_asset_python()
   # CONFIGURE_DEPENDS: neuer Spielordner löst beim nächsten Build ein Re-Configure aus
   file(GLOB game_cpps CONFIGURE_DEPENDS ${games_dir}/*/*.cpp)
   set(ids "")

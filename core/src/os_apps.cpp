@@ -31,7 +31,17 @@ void Launcher::tick(Context& ctx) {
 
   if (in.pressed(Button::Start)) rt_.requestMenu(true);
 
-  // Statuszeile: belegte Slots als farbige Punkte (Akku folgt mit M3, WebPad mit M6)
+  // Statuszeile: Akku, belegte Slots als farbige Punkte (WebPad folgt mit M6)
+  const hal::power::PowerState& pw = rt_.power();
+  if (pw.available) {
+    // Batteriesymbol 7x3 + Pol, Füllung 0-5 px
+    const int fill = (pw.percent * 5 + 50) / 100;
+    const uint16_t c = pw.charging ? rgb(255, 210, 0)
+                       : pw.percent < 10 ? rgb(255, 40, 30) : rgb(60, 200, 60);
+    g.rect(45, 0, 7, 5, DIM);
+    g.fillRect(52, 1, 1, 3, DIM);
+    if (fill > 0) g.fillRect(46, 1, fill, 3, c);
+  }
   for (int s = 0; s < Input::MAX_PLAYERS; ++s) {
     Player& p = in.player(s);
     g.fillRect(56 + 2 * s, 1, 1, 3, p.connected() ? p.color() : DIM);

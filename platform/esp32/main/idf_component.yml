@@ -1,0 +1,6 @@
+dependencies:
+  idf: ">=5.5,<6.0"
+  # HUB75-DMA-Treiber, MIT-Lizenz. Unverändert; die FM6126A-Init macht hal_display.cpp.
+  hub75:
+    git: https://github.com/mrcodetastic/ESP32-HUB75-MatrixPanel-DMA.git
+    version: "3.1.0"

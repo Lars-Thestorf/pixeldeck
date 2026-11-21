@@ -9,6 +9,7 @@
 #include "pd/hal/app.h"
 #include "pd/hal/display.h"
 #include "pd/hal/log.h"
+#include "pd/hal/power.h"
 #include "pd/hal/random.h"
 #include "pd/hal/storage.h"
 #include "pd/hal/time.h"
@@ -22,6 +23,10 @@ bool quit = false;
 uint32_t lastRumbleMs = 0;
 uint8_t brightness = 0;
 void (*onPoll)(int) = nullptr;
+pd::hal::power::PowerState power{};
+int shutdownReadyCalls = 0;
+pd::hal::app::LastReset nextReset{};
+std::string activity;
 
 struct Entry { std::string name; std::vector<uint8_t> data; };
 std::vector<Entry> store;
@@ -38,6 +43,10 @@ void reset() {
   quit = false;
   lastRumbleMs = 0;
   onPoll = nullptr;
+  power = {};
+  shutdownReadyCalls = 0;
+  nextReset = {};
+  activity.clear();
 }
 void clearStorage() { store.clear(); }
 
@@ -76,7 +85,18 @@ uint32_t seed() { return 1234; }
 }  // namespace random
 namespace app {
 bool quitRequested() { return testhal::quit; }
+void heartbeat() {}
+void setActivity(const char* id) { testhal::activity = id ? id : ""; }
+LastReset lastReset() {
+  const LastReset r = testhal::nextReset;
+  testhal::nextReset = {};
+  return r;
+}
 }  // namespace app
+namespace power {
+PowerState read() { return testhal::power; }
+void shutdownReady() { ++testhal::shutdownReadyCalls; }
+}  // namespace power
 namespace storage {
 bool load(const char* ns, const char* key, void* buf, size_t len, size_t* outLen) {
   testhal::Entry* e = testhal::find(ns, key);

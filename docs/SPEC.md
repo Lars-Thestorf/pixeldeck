@@ -1,6 +1,6 @@
 # pixeldeck - Spezifikation
 
-Stand: 2026-11-21, Version 0.4 (Festlegungen aus M1 und M2 eingearbeitet; Version 0.2: Registry per CMake, WebPad-Protokoll im Core und Profilwahl beim Join im laufenden Spiel bestätigt)
+Stand: 2026-11-21, Version 0.5 (Festlegungen und Messwerte aus M3 eingearbeitet; Version 0.4: M1 und M2; Version 0.2: Registry per CMake, WebPad-Protokoll im Core und Profilwahl beim Join im laufenden Spiel bestätigt)
 
 pixeldeck ist ein kleines "Betriebssystem" mit Spielen für eine selbstgebaute Spielekonsole (ESP32 + 64x32 RGB-LED-Matrix). Derselbe C++-Code läuft nativ auf dem ESP32 und als Simulator am PC. Dieses Dokument beschreibt alles oberhalb der Hardware-Ansteuerung; die HAL wird hier nur als Schnittstelle spezifiziert.
 
@@ -12,12 +12,60 @@ Kennzeichnung: **[Annahme]** = begründete Festlegung ohne Messung oder ausdrüc
 
 | Komponente | Ausführung |
 |---|---|
-| MCU | ESP32 (klassisch, 2 Kerne, 240 MHz), 8 MB Flash, **kein PSRAM** |
-| Display | 64x32 RGB-LED-Matrix, HUB75 direkt an GPIOs, Ansteuerung per DMA |
-| Eingabe | Zweiter Mikrocontroller meldet Tastenzustand per UART |
-| Tasten | A, B, X, Y, L, R, Start, Select, D-Pad (4), linker + rechter Analogstick mit L3/R3 |
-| Power | Akkumessung und Power-Taste am zweiten µC, Daten per UART; Shutdown wird angekündigt |
+| MCU | ESP32-D0WD-V3 (Rev. 3.0, 2 Kerne, 240 MHz), 8 MB Flash (gemessen), **kein PSRAM** |
+| Display | 64x32 RGB-LED-Matrix mit FM6126A-Treibern, HUB75 direkt an GPIOs, Ansteuerung per I2S-DMA |
+| Eingabe | Zweiter Mikrocontroller (ATxmega, "xmega") meldet Tastenzustand per UART |
+| Tasten | A, B, X, Y, L, R, Start, Select, D-Pad (4), linker + rechter Analogstick mit L3/R3, Power |
+| Power | Akkumessung, Lade-Erkennung und Power-Taste am xmega, Daten per UART (siehe 1.2) |
+| USB | einziger Anschluss, am xmega: Laden, USB-CDC-Brücke auf ESP-UART0 (Flashen, Log), DFU für den xmega |
 | Ton | noch keine Hardware |
+
+### 1.1 Display-Anschluss (M3)
+
+Pins: R1 32, G1 33, B1 27, R2 14, G2 12, B2 13, A 2, B 0, C 4, D 16, LAT 5, OE 18, CLK 17 (E entfällt, 1/16 Scan).
+Treiber `ESP32-HUB75-MatrixPanel-DMA` 3.1.0 (MIT) unverändert, Konfiguration: Double Buffer,
+`HZ_10M` (in 3.1.0 = 8 MHz), `clkphase = false`, 8 Bit Farbtiefe, kein CIE-Mapping.
+Die FM6126A-Register setzt die HAL vor `begin()` selbst per Bitbang (REG1 = alle Bits 1, REG2 = 0);
+mit den Upstream-Werten hatte das Panel einen Rotstich. Der Lib wird deshalb `SHIFTREG` übergeben.
+Gamma-Korrektur in der HAL: RGB565 → 8 Bit je Kanal per Tabelle mit `PD_PANEL_GAMMA`
+(2,2, am Gerät bestätigt: Testbild sieht aus wie am PC). Der Simulator zeigt die Werte unkorrigiert (sRGB).
+
+### 1.2 xmega-Link (M3)
+
+xmega-Firmware: `larsledmatrix/Software/platforms/HMatrix/xmega` (LUFA, ATxmega128A4U, 48 MHz),
+Flashen per DFU (Joystick beim Einschalten halten, `dfu-programmer atxmega128a4u erase/flash/start`).
+In M3 geändert: fester Sendetakt und Power-Taste (siehe unten); Protokoll unverändert.
+
+
+- ESP-UART0, 115200 Baud. ESP-TX = Konsole/Log (xmega leitet an USB), ESP-RX = Statuspakete des
+  xmega, gemischt mit Daten vom USB-Host (Flashen, Dev-Kanal).
+- Paket, 10 Byte: `u16 buttons (LE) | u8 lx | u8 ly | u8 rx | u8 ry | u16 Akku-ADC (LE) | crcH | crcL`.
+  CRC16 vom xmega-CRC-Modul; Prüfung `~esp_crc16_be(0, paket, 10) == 0`. Der ESP sucht Pakete mit
+  einem Schiebefenster über den Byte-Strom (Resync ohne Startbyte).
+- Bits: 0 A, 1 B, 2 X, 3 Y, 4 L, 5 R, 6 Select, 7 Start, 8 Links, 9 Hoch, 10 Rechts, 11 Runter,
+  12 L3, 13 R3, 14 Laden, 15 Abschalten läuft (gelatcht, siehe unten).
+- Rate: **200 Pakete/s**, fester Takt per Timer TCC0 (gemessen 1048 Pakete in 5 s). Vorher alle
+  1024 Durchläufe der xmega-Hauptschleife, gemessen ca. 20/s am USB.
+- Bitbelegung am Gerät bestätigt (alle 14 Tasten in Sollreihenfolge gedrückt).
+- Sticks: Rohwert 1-255, Ruhelage gemessen 127-128; der rechte Stick X zittert in Ruhe um bis
+  zu +15. Rechts und unten = größere Werte, passt zur Spielsicht. HAL: `raw - 128`, Totzone
+  **[Annahme]** ±16 (knapp über dem gemessenen Zittern), auf ±127 skaliert.
+- Akku: `mV = ADC * 4125 / 4095`, 3300 mV = 0 %, 4125 mV = 100 % (Formel aus dem HMatrix-Projekt,
+  nicht kalibriert). Am USB-Kabel liefert der ADC 4095.
+- Link gilt nach **[Annahme]** 500 ms ohne gültiges Paket als getrennt.
+- DTR/RTS des USB-Hosts steuern über den xmega BOOT/EN des ESP. Linux setzt beim Öffnen des
+  Ports beide Leitungen, jedes Öffnen startet den ESP also neu.
+
+Power-Taste: Solange die Taste gedrückt ist, hält die Hardware die Versorgung; sonst hält sie der
+xmega über `KEEPALIVE`. Ablauf seit M3 (Polling im 200-Hz-Takt, kein Pin-Interrupt mehr):
+1. Der Einschalt-Druck zählt nicht, bis die Taste einmal losgelassen wurde.
+2. 20 ms gedrückt → Bit 15 gesetzt und gelatcht.
+3. Nach **1,5 s Gnadenfrist** `KEEPALIVE` low; das Gerät ist aus, sobald die Taste losgelassen ist.
+4. Läuft es 2 s nach dem Loslassen trotzdem weiter (z. B. Versorgung über USB), wieder `KEEPALIVE`
+   high und Bit 15 löschen; der Betrieb geht weiter.
+
+Bis M3 setzte ein fehlerhafter Interrupt (ISC per `|=` auf Low-Level) die Taste in eine
+Dauer-ISR mit 100-ms-Delays; die Hauptschleife stand, der ESP sah das Power-Bit nie.
 
 ---
 
@@ -327,7 +375,7 @@ public:
 
 | Plattform | Ort |
 |---|---|
-| ESP32 | NVS (Wear-Leveling durch IDF); eigene NVS-Partition **[Annahme]** 64-128 KB |
+| ESP32 | NVS (Wear-Leveling durch IDF), Partition `nvs` 128 KB (M3), ein Blob pro Schlüssel |
 | PC | `~/.pixeldeck/` (Linux), `%APPDATA%\pixeldeck\` (Windows) |
 
 OS-Daten (Profile, Scores, Einstellungen) liegen in reservierten Namensräumen ohne `g_`-Präfix, Einstellungen in `os/settings`. Namensräume und Schlüssel: nur `[a-z0-9_]`, max. 15 Zeichen. Am PC ist das Verzeichnis per `--data-dir` wählbar; geschrieben wird atomar (temporäre Datei, dann umbenennen).
@@ -413,6 +461,7 @@ namespace input {
 
 namespace power {
   struct PowerState {
+    bool     available;                     // Akku vorhanden/gemessen (PC: false)
     uint16_t millivolts;
     uint8_t  percent;
     bool     charging;
@@ -444,6 +493,11 @@ namespace random {
 
 namespace app {
   bool quitRequested();                     // PC: Fenster geschlossen oder Esc; ESP32: immer false
+  void heartbeat();                         // einmal pro Hauptschleife; ESP32: Task-Watchdog
+  void setActivity(const char* gameId);     // laufendes Spiel (nullptr = OS), übersteht Reset
+  enum class ResetCause : uint8_t { None, Hang, Crash };
+  struct LastReset { ResetCause cause; char gameId[13]; };
+  LastReset lastReset();                    // Grund des letzten Neustarts, einmal nach Boot
 }
 
 namespace audio {                           // reserviert
@@ -469,7 +523,10 @@ namespace net {                             // Transport für WebPad, Protokoll 
 Hinweise:
 - `input::poll` liefert nur Hardware-Geräte. WebPad-Geräte erzeugt der Core aus dem Protokoll und speist sie in denselben Slot-Manager. Die HAL stellt für das WebPad nur den Transport bereit (`net`), das Protokoll ist plattformunabhängig im Core.
 - `net`-Callbacks können aus einem anderen Task/Kern kommen. Der Core übernimmt die Daten in gesperrte Puffer.
-- **[Offen]** UART-Protokoll zum zweiten µC (Format, Baudrate, Kalibrierung der Sticks, Ablauf und Zeitfenster des Shutdown-Handshakes). Bewusst außerhalb dieser Spezifikation; bestimmt nur die ESP-Implementierung von `input` und `power`.
+- UART-Protokoll zum xmega: Abschnitt 1.2. Es bestimmt nur die ESP-Implementierung von `input` und `power`.
+- ESP32: `input::poll` liefert ein Gerät `Builtin` "KONSOLE", verbunden, solange Pakete kommen.
+  `power::read().shutdownPending` = Power-Bit, aber erst nachdem die Taste nach dem Einschalten
+  einmal losgelassen wurde (sonst löst der Einschalt-Druck sofort den Shutdown aus).
 
 ---
 
@@ -481,7 +538,7 @@ Launcher und Systemmenü sind intern selbst Spiele über dieselbe API (Test der 
 
 - Karussell: ein Spiel pro Ansicht. Icon 16x16 links, rechts Name (5x7), darunter Rekord + Profilname (3x5) und Spielerzahl ("1-4P").
 - Links/Rechts (D-Pad oder Stick) blättert, A startet, Start öffnet das Systemmenü.
-- Statuszeile (3x5): Akkustand, WebPad an/aus, belegte Slots als farbige Punkte. Umgesetzt (M2): Position "n/m" links, Slot-Punkte rechts; Akku ab M3, WebPad ab M6. Rekord zeigt bis M4 "REK ---".
+- Statuszeile (3x5): Akkustand, WebPad an/aus, belegte Slots als farbige Punkte. Umgesetzt (M2): Position "n/m" links, Slot-Punkte rechts; WebPad ab M6. Akku (M3): Batteriesymbol links der Slot-Punkte, grün, unter 10 % rot, beim Laden gelb; nur wenn `available`. Rekord zeigt bis M4 "REK ---".
 - Der Launcher merkt sich das zuletzt gestartete Spiel (OS-Einstellungen) und wählt es beim nächsten Mal vor.
 - Namen bis 38 px Breite (6 Zeichen) in 5x7, längere in 3x5.
 
@@ -553,19 +610,40 @@ Konsole → Client:
 
 | Kern | Aufgaben |
 |---|---|
-| 0 | WLAN-Stack, HTTP/WebSocket, UART-Empfang, Audio-Mixer |
-| 1 | OS-Hauptschleife: Snapshot → `tick()` → `present()` |
+| 0 | WLAN-Stack, HTTP/WebSocket, UART-Empfang (`pd_link`, Prio 6), Audio-Mixer |
+| 1 | OS-Hauptschleife `pd_main` (Prio 5): Snapshot → `tick()` → `present()` |
 
 HUB75-DMA läuft ohne CPU-Last. Datenaustausch zwischen den Kernen nur über kleine gesperrte Puffer (Input-Zustand, Audio-Queue).
 
 Stack der Hauptschleife: `PD_MAIN_STACK_SIZE`, Startwert **16 KB**. Große Arrays gehören in die Arena, nicht auf den Stack.
 
+Umgesetzt (M3): `app_main` (Kern 0) initialisiert NVS, wertet den Neustartgrund aus, sammelt
+Entropie (`bootloader_random`, vor dem I2S-Start), startet Display und UART-Task und legt dann
+`pd_main` auf Kern 1 an. `CONFIG_FREERTOS_HZ = 1000`. `sleepUntil` wartet per `vTaskDelay` und
+die letzte Millisekunde aktiv.
+
+Messwerte M3 (Launcher und alle vier Spiele, Dev-Build):
+
+| Wert | gemessen |
+|---|---|
+| Heap frei vor Display-Init | 216 KB, größter Block 108 KB |
+| HUB75-DMA (Double Buffer, 8 Bit) | 32 KB Puffer + 2x 1024 Deskriptoren |
+| Heap frei im Betrieb (Minimum) | ca. 134 KB |
+| Stack `pd_main` belegt (Höchststand) | ca. 2,6 KB von 16 KB |
+| `present()` (2048 Pixel + Flip) | 2,6 ms |
+| `tick()` der Spiele, Schnitt / Maximum | 50-150 µs / 440 µs |
+| statisches DRAM | 96 KB von 177 KB (davon Arena 64 KB) |
+
 ### 14.2 Hänger und Abstürze
 
-- **Task-Watchdog** auf der Hauptschleife, Timeout **5 s** → Reset.
+- **Task-Watchdog** auf der Hauptschleife, Timeout **5 s** → Reset. Nur `pd_main` ist angemeldet (`hal::app::heartbeat()` je Durchlauf), die Idle-Tasks nicht.
 - **Panic** (Nullzeiger, Stack-Überlauf) → IDF-Panic-Reset, Backtrace über UART.
 - Vor bzw. bei beidem werden Grund und Spiel-ID im RTC-Speicher abgelegt. Nach dem Neustart zeigt das OS "SNAKE HAT NICHT REAGIERT" bzw. "SNAKE ABGESTÜRZT" und landet im Launcher.
 - **Kein automatischer Neustart** des Spiels (Boot-Schleife).
+- Umgesetzt (M3): Spiel-ID per `hal::app::setActivity` in `RTC_NOINIT`. Neustartgrund aus
+  `esp_reset_reason()`: Task-/Interrupt-WDT = "HAT NICHT REAGIERT", Panic = "ABGESTUERZT"
+  (die Fonts haben keine Umlaute). Ohne Spiel heißt es "SYSTEM". Der Hinweis steht 5 s oder bis
+  A/B/Start, dann Launcher. Am Gerät getestet mit den Dev-Befehlen `hang` und `crash`.
 - Letzte Rettung bleibt die Power-Taste am zweiten µC.
 
 ### 14.3 Shutdown
@@ -574,6 +652,12 @@ Stack der Hauptschleife: `PD_MAIN_STACK_SIZE`, Startwert **16 KB**. Große Array
 2. OS ruft `onShutdown()` des laufenden Spiels, sichert OS-Daten, zeigt kurz "BYE".
 3. OS ruft `hal::power::shutdownReady()`.
 4. **[Offen]** Maximale Wartezeit des zweiten µC, falls `shutdownReady` nie kommt.
+
+Stand M3: Der Core führt die Schritte 1-3 aus, sobald `shutdownPending` gesetzt ist (Spiel-
+`onShutdown`, Einstellungen sichern, "BYE"). Bleibt das Abschalten aus und ist `shutdownPending`
+3 s lang wieder false, geht es zurück in den Launcher. Es gibt keinen Rückkanal zum xmega;
+`shutdownReady()` ist auf dem ESP nur ein Log-Eintrag. Statt Handshake hat der xmega eine feste
+Gnadenfrist von 1,5 s (Abschnitt 1.2), damit ist Punkt 4 erledigt.
 
 ---
 
@@ -613,7 +697,8 @@ Tasten gelten nach **physischer Position im US-Layout** (SDL-Scancodes). Auf deu
 
 ### 16.1 Werkzeuge
 
-- **ESP32:** ESP-IDF (aktuelle 5.x), CMake. HUB75 über `ESP32-HUB75-MatrixPanel-DMA` als IDF-Komponente (**[Annahme]** MIT-Lizenz, vor Übernahme prüfen).
+- **ESP32:** ESP-IDF **v5.5**, CMake. Projekt unter `platform/esp32/`; Core und Spiele werden über dieselben CMake-Dateien eingebunden wie am PC. HUB75 über `ESP32-HUB75-MatrixPanel-DMA` **3.1.0** (MIT-Lizenz geprüft) per IDF Component Manager (Git-Tag, `dependencies.lock`).
+- **Dev-Kanal (ESP32, `PD_DEV=ON`):** Textbefehle `!<befehl>` über USB → xmega → ESP-RX (`fb`, `press`, `stick`, `stat`, `raw`, `hang`, `crash`, `reset`), Werkzeug `tools/pd_serial.py`. Im Release (`-DPD_DEV=OFF`) nicht enthalten.
 - **PC:** CMake, SDL3. Linux ist Pflicht, Windows optional.
 - **Assets:** Python 3 + Pillow (Python ist durch ESP-IDF ohnehin vorhanden).
 - **Tests:** doctest (MIT-Lizenz, header-only).
@@ -672,7 +757,7 @@ pixeldeck/
 |---|---|
 | **M1 Gerüst (PC)** | CMake, Game-API, Arena, Gfx + beide Fonts, Input-Snapshot Slot 0 (Tastatur), SDL3-Fenster mit LED-Optik, Direktstart, Testspiel |
 | **M2 Spiele + Launcher** | Launcher, Systemmenü (Weiter/Beenden/Helligkeit), Storage, Asset-Konverter, Headless-Smoke-Test, Snake, Pong, Fallblock-Spiel |
-| **M3 ESP32** | IDF-Projekt, HAL für Display/Time/Storage/Log/Random, Watchdog und Crash-Meldung; Input/Power vorerst Platzhalter |
+| **M3 ESP32** | IDF-Projekt, HAL für Display/Time/Storage/Log/Random, Input und Power über den xmega-Link, Watchdog und Crash-Meldung, Dev-Kanal |
 | **M4 Mehrspieler + Profile** | Slot-Manager, Join, Lobby, Profile, Highscores, SDL-Gamepads, zweites Tastaturlayout |
 | **M5 Audio** | Synth, Sfx-API, SDL-Ausgabe; ESP-Ausgabe erst mit Hardware |
 | **M6 WebPad** | AP, Captive Portal, WebSocket-Protokoll, Controller-Seite, Rumble, auch am PC |
@@ -687,13 +772,14 @@ Startspiele (eigene Designs, keine Nachbildungen bestehender Spiele):
 
 ## 18. Offene Punkte
 
-1. UART-Protokoll zum zweiten µC inkl. Stick-Kalibrierung und Shutdown-Handshake (Zeitfenster)
-2. RAM-Messung auf der Hardware → `PD_ARENA_SIZE`, `PD_MAIN_STACK_SIZE`, Größe der NVS-Partition
-3. Tick-Dauer typischer Spiele auf dem ESP messen, Grenzwert für die PC-Warnung ableiten
+1. ~~UART-Protokoll zum zweiten µC~~ dokumentiert in 1.2, Paketrate und Gnadenfrist in M3 umgesetzt. Offen bleibt die Stick-Kalibrierung
+2. RAM gemessen (14.1): genug Reserve; `PD_ARENA_SIZE` (64 KB) und `PD_MAIN_STACK_SIZE` (16 KB) bleiben vorerst, Stack könnte auf 8 KB sinken. NVS-Partition 128 KB
+3. Tick-Dauer gemessen (14.1): unter 0,5 ms. Die PC-Warnschwelle von 1666 µs bleibt
 4. Audio-Hardware (I2S-DAC oder interner DAC)
 5. ~~Fonts erstellen bzw. lizenzkonforme Quelle wählen~~ erledigt in M1 (selbst gepixelt)
 6. QR-Code-Lesbarkeit auf der Matrix testen
 7. WLAN-Passwortschema für das WebPad
 8. GIF-Encoder für den Simulator auswählen (Lizenz)
 9. Registrierungs-Syntax, falls Windows/MSVC wichtig wird (Designated Initializers)
-10. Lizenz von `ESP32-HUB75-MatrixPanel-DMA` bestätigen
+10. ~~Lizenz von `ESP32-HUB75-MatrixPanel-DMA` bestätigen~~ MIT, geprüft in M3
+11. ~~Sichtprüfung am Gerät~~ in M3 bestätigt (Bild wie am PC, Gamma 2,2 passt); Tastenzuordnung und Stick-Richtungen ebenfalls
