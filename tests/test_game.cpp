@@ -15,6 +15,11 @@ public:
     testgame::stats.allocInInit = ctx.alloc(100) != nullptr;
     testgame::stats.allocTooBig = ctx.alloc(PD_ARENA_SIZE) != nullptr;
     testgame::stats.firstRandom = ctx.random();
+    uint32_t c = 0;
+    testgame::stats.loaded = ctx.storage.load(&c, sizeof c);
+    testgame::stats.counter = testgame::stats.loaded ? c : 0;
+    uint64_t wrong = 0;
+    testgame::stats.loadWrongSize = ctx.storage.load(&wrong, sizeof wrong);
   }
   void tick(pd::Context& ctx) override {
     if (testgame::stats.ticks == 0) testgame::stats.allocInTick = ctx.alloc(4) != nullptr;
@@ -22,7 +27,11 @@ public:
     ++testgame::stats.ticks;
     ctx.gfx.pixel(0, 0, 0x1234);
   }
-  void onShutdown(pd::Context&) override { ++testgame::stats.shutdowns; }
+  void onShutdown(pd::Context& ctx) override {
+    ++testgame::stats.shutdowns;
+    const uint32_t c = testgame::stats.counter + 1;
+    ctx.storage.save(&c, sizeof c);
+  }
   ~TestGame() override { ++testgame::stats.destroyed; }
 };
 
@@ -38,4 +47,5 @@ PD_REGISTER_GAME(TestGame, {
   .scoreMode = pd::ScoreMode::Higher,
   .minPlayers = 1,
   .maxPlayers = 2,
+  .saveVersion = 3,
 })

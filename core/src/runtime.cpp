@@ -2,16 +2,15 @@
 
 #include <cstdarg>
 #include <cstdio>
+#include <cstring>
 
-#include "arena.h"
-#include "input_system.h"
 #include "pcg32.h"
-#include "pd/context.h"
 #include "pd/hal/app.h"
 #include "pd/hal/display.h"
 #include "pd/hal/log.h"
 #include "pd/hal/random.h"
 #include "pd/hal/time.h"
+#include "runtime_impl.h"
 
 namespace pd::os {
 
@@ -35,9 +34,25 @@ struct GameCodeScope {
 
 constexpr uint64_t kPcgStream = 0x9E3779B97F4A7C15ULL;
 
+// Spielbild für das Menü abdunkeln (ca. 37 %)
+void dim(Gfx& g) {
+  uint16_t* p = g.buffer();
+  for (int i = 0; i < Gfx::W * Gfx::H; ++i) {
+    uint16_t c = p[i];
+    unsigned r = (c >> 11) & 31, gr = (c >> 5) & 63, b = c & 31;
+    p[i] = uint16_t(((r * 3 / 8) << 11) | ((gr * 3 / 8) << 5) | (b * 3 / 8));
+  }
+}
+
 }  // namespace
 
 bool gameCodeActive() { return g_gameActive; }
+
+bool exchangeGameCodeActive(bool active) {
+  const bool prev = g_gameActive;
+  g_gameActive = active;
+  return prev;
+}
 
 void logf(LogLevel level, const char* fmt, ...) {
   char msg[256];
@@ -60,105 +75,188 @@ const GameInfo* findGame(const char* id) {
   return nullptr;
 }
 
-class Runtime {
-public:
-  int run(const RunOptions& opts);
+Runtime::Runtime() : arena_(g_arenaMem, sizeof g_arenaMem) {
+  osCtx_.gameId_ = "os";
+}
 
-private:
-  Gfx gfx_;
-  Input input_;
-  Audio audio_;
-  Storage storage_;
-  Scores scores_;
-  Context ctx_{gfx_, input_, audio_, storage_, scores_};
-  InputSystem inputSys_;
-  Arena arena_{g_arenaMem, sizeof g_arenaMem};
-};
+void Runtime::setBrightnessLevel(int level) {
+  if (level < 0) level = 0;
+  if (level >= kBrightnessLevels) level = kBrightnessLevels - 1;
+  settings_.brightnessLevel = uint8_t(level);
+  hal::display::setBrightness(kBrightnessSteps[level]);
+}
 
-int Runtime::run(const RunOptions& opts) {
-  const GameInfo* info = nullptr;
-  if (opts.gameId) {
-    info = findGame(opts.gameId);
-  } else if (gameCount() > 0) {
-    info = &game(0);
-    logf(LogLevel::Info, "Kein --game angegeben, starte '%s' (Launcher folgt in M2)",
-         info->meta.id);
-  }
-  if (!info) {
-    logf(LogLevel::Error, "Spiel '%s' nicht gefunden. Vorhanden:",
-         opts.gameId ? opts.gameId : "");
-    for (size_t i = 0; i < gameCount(); ++i)
-      logf(LogLevel::Error, "  %s", game(i).meta.id);
-    return 2;
-  }
-  const GameMeta& meta = info->meta;
-
-  hal::display::init();
-
-  // Spiel anlegen
+void Runtime::startGame(const GameInfo& info) {
+  const GameMeta& meta = info.meta;
   arena_.reset();
   arena_.resetPeak();
-  void* mem = arena_.alloc(info->size, info->align);
+  void* mem = arena_.alloc(info.size, info.align);
   if (!mem) {
     logf(LogLevel::Error, "Spielobjekt '%s' passt nicht in die Arena", meta.id);
-    return 3;
+    return;
   }
 
-  const uint32_t seed = opts.fixedSeed ? opts.seed : hal::random::seed();
-  ctx_.tick_ = 0;
-  ctx_.arena_ = &arena_;
-  ctx_.gameId_ = meta.id;
-  Pcg32::seed(ctx_.rngState_, ctx_.rngInc_, seed, kPcgStream);
+  std::snprintf(storage_.ns_, sizeof storage_.ns_, "g_%s", meta.id);
+  storage_.version_ = meta.saveVersion;
+
+  const uint32_t seed = opts_.fixedSeed ? opts_.seed : hal::random::seed();
+  gameCtx_.tick_ = 0;
+  gameCtx_.arena_ = &arena_;
+  gameCtx_.gameId_ = meta.id;
+  Pcg32::seed(gameCtx_.rngState_, gameCtx_.rngInc_, seed, kPcgStream);
   gfx_.clear();
+  sumUs_ = lastWarn_ = 0;
+  maxUs_ = gameTicks_ = slowTicks_ = 0;
 
   logf(LogLevel::Info, "Starte '%s' (seed %u)", meta.id, unsigned(seed));
-
-  Game* g = nullptr;
+  info_ = &info;
   {
     GameCodeScope scope;
-    g = info->create(mem);
-    ctx_.allocAllowed_ = true;
-    g->init(ctx_);
-    ctx_.allocAllowed_ = false;
+    game_ = info.create(mem);
+    gameCtx_.allocAllowed_ = true;
+    game_->init(gameCtx_);
+    gameCtx_.allocAllowed_ = false;
+  }
+  std::snprintf(settings_.lastGame, sizeof settings_.lastGame, "%s", meta.id);
+}
+
+void Runtime::endGame() {
+  if (!game_) return;
+  {
+    GameCodeScope scope;
+    game_->onShutdown(gameCtx_);
+    game_->~Game();
+  }
+  game_ = nullptr;
+  const char* id = info_->meta.id;
+  const size_t peak = arena_.peak(), cap = arena_.capacity();
+  const unsigned pct = unsigned(peak * 100 / cap);
+  logf(pct > 80 ? LogLevel::Warn : LogLevel::Info,
+       "Arena-Höchststand '%s': %zu / %zu Bytes (%u %%)%s", id, peak, cap, pct,
+       pct > 80 ? " - über 80 %" : "");
+  if (gameTicks_ > 0)
+    logf(LogLevel::Info, "Ticks '%s': %u, tick() Schnitt %u us, Maximum %u us%s", id,
+         unsigned(gameTicks_), unsigned(sumUs_ / gameTicks_), unsigned(maxUs_),
+         slowTicks_ ? " (siehe Warnungen)" : "");
+  arena_.reset();
+  storage_.ns_[0] = 0;
+  info_ = nullptr;
+  menuOpen_ = false;
+  launcher_.enter();
+}
+
+void Runtime::openMenu() {
+  if (menuOpen_) return;
+  menuOpen_ = true;
+  dim(gfx_);
+  menu_.enter(game_ != nullptr);
+}
+
+void Runtime::closeMenu() {
+  if (!menuOpen_) return;
+  menuOpen_ = false;
+  saveSettings(settings_);
+}
+
+void Runtime::processRequests() {
+  if (pendingEnd_) {
+    pendingEnd_ = false;
+    endGame();
+    saveSettings(settings_);
+  }
+  if (pendingMenu_ >= 0) {
+    if (pendingMenu_) openMenu();
+    else closeMenu();
+    pendingMenu_ = -1;
+  }
+  if (pendingStart_) {
+    const GameInfo* g = pendingStart_;
+    pendingStart_ = nullptr;
+    if (!game_) {
+      startGame(*g);
+      saveSettings(settings_);
+    }
+  }
+}
+
+void Runtime::tickGame() {
+  const uint64_t t0 = hal::time::micros();
+  {
+    GameCodeScope scope;
+    game_->tick(gameCtx_);
+  }
+  const uint64_t t1 = hal::time::micros();
+  const uint32_t dt = uint32_t(t1 - t0);
+  sumUs_ += dt;
+  if (dt > maxUs_) maxUs_ = dt;
+  if (opts_.tickWarnUs && dt > opts_.tickWarnUs) {
+    ++slowTicks_;
+    if (lastWarn_ == 0 || t1 - lastWarn_ > 1000000u) {
+      logf(LogLevel::Warn, "tick() %u us (Grenze %u us, Tick %u)", unsigned(dt),
+           unsigned(opts_.tickWarnUs), unsigned(gameCtx_.tick_));
+      lastWarn_ = t1;
+    }
+  }
+  ++gameCtx_.tick_;
+  ++gameTicks_;
+}
+
+int Runtime::run(const RunOptions& opts) {
+  opts_ = opts;
+  pendingStart_ = nullptr;
+  pendingEnd_ = false;
+  pendingMenu_ = -1;
+  menuOpen_ = false;
+
+  const GameInfo* direct = nullptr;
+  if (opts.gameId) {
+    direct = findGame(opts.gameId);
+    if (!direct) {
+      logf(LogLevel::Error, "Spiel '%s' nicht gefunden. Vorhanden:", opts.gameId);
+      for (size_t i = 0; i < gameCount(); ++i) logf(LogLevel::Error, "  %s", game(i).meta.id);
+      return 2;
+    }
   }
 
+  hal::display::init();
+  settings_ = Settings{};
+  loadSettings(settings_);
+  setBrightnessLevel(settings_.brightnessLevel);
+
+  osCtx_.tick_ = 0;
+  Pcg32::seed(osCtx_.rngState_, osCtx_.rngInc_, hal::random::seed(), kPcgStream);
+  if (direct) startGame(*direct);   // Direktstart überspringt den Launcher
+  else launcher_.enter();
+
   // Beim Start bereits gehaltene Tasten zählen nicht als "neu gedrückt".
-  inputSys_.update(input_, meta.maxPlayers, meta.stickAsDpad);
+  inputSys_.update(input_, 1, true);
   inputSys_.resetEdges(input_);
 
   const uint64_t period = 1000000u / PD_TICK_HZ;
   uint64_t next = hal::time::micros();
-  uint64_t lastWarn = 0, sumUs = 0;
-  uint32_t maxUs = 0, ticks = 0, slowTicks = 0;
+  uint32_t ticks = 0;
 
   for (;;) {
     if (opts.maxTicks && ticks >= opts.maxTicks) break;
 
-    inputSys_.update(input_, meta.maxPlayers, meta.stickAsDpad);
+    const bool gameView = game_ && !menuOpen_;
+    inputSys_.update(input_, gameView ? info_->meta.maxPlayers : 1,
+                     gameView ? info_->meta.stickAsDpad : true);
     if (hal::app::quitRequested()) break;
-    if (inputSys_.menuComboTriggered()) {
-      logf(LogLevel::Info, "Start+Select gehalten: Systemmenü folgt in M2, beende Spiel");
-      break;
-    }
 
-    const uint64_t t0 = hal::time::micros();
-    {
-      GameCodeScope scope;
-      g->tick(ctx_);
+    if (inputSys_.menuComboTriggered()) {
+      if (menuOpen_) closeMenu();
+      else openMenu();
+    } else if (menuOpen_) {
+      menu_.tick(osCtx_);
+      ++osCtx_.tick_;
+    } else if (game_) {
+      tickGame();
+    } else {
+      launcher_.tick(osCtx_);
+      ++osCtx_.tick_;
     }
-    const uint64_t t1 = hal::time::micros();
-    const uint32_t dt = uint32_t(t1 - t0);
-    sumUs += dt;
-    if (dt > maxUs) maxUs = dt;
-    if (opts.tickWarnUs && dt > opts.tickWarnUs) {
-      ++slowTicks;
-      if (lastWarn == 0 || t1 - lastWarn > 1000000u) {
-        logf(LogLevel::Warn, "tick() %u us (Grenze %u us, Tick %u)", unsigned(dt),
-             unsigned(opts.tickWarnUs), unsigned(ctx_.tick_));
-        lastWarn = t1;
-      }
-    }
-    ++ctx_.tick_;
+    processRequests();
     ++ticks;
 
     hal::display::present(gfx_.buffer());
@@ -170,22 +268,11 @@ int Runtime::run(const RunOptions& opts) {
     else hal::time::sleepUntil(next);
   }
 
-  {
-    GameCodeScope scope;
-    g->onShutdown(ctx_);
-    g->~Game();
+  if (game_) {
+    menuOpen_ = false;
+    endGame();
   }
-
-  const size_t peak = arena_.peak(), cap = arena_.capacity();
-  const unsigned pct = unsigned(peak * 100 / cap);
-  logf(pct > 80 ? LogLevel::Warn : LogLevel::Info,
-       "Arena-Höchststand '%s': %zu / %zu Bytes (%u %%)%s", meta.id, peak, cap, pct,
-       pct > 80 ? " - über 80 %" : "");
-  if (ticks > 0)
-    logf(LogLevel::Info, "Ticks: %u, tick() Schnitt %u us, Maximum %u us%s", unsigned(ticks),
-         unsigned(sumUs / ticks), unsigned(maxUs),
-         slowTicks ? " (siehe Warnungen)" : "");
-  arena_.reset();
+  saveSettings(settings_);
   return 0;
 }
 

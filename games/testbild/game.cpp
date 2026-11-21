@@ -1,71 +1,19 @@
 // Testbild: Testspiel für M1. Prüft Eingabe, beide Fonts, Zeichenfunktionen,
 // Sprites (Animation, Spiegeln), Arena (ctx.alloc) und PRNG.
 // L/R wechselt die Seite.
-#include <array>
 #include <cmath>
 #include <cstdio>
 
 #include "pd/pd.h"
+#include "testbild_assets.h"
 
 using namespace pd;
 
 namespace {
 
-// --- Assets (bis zum Asset-Konverter in M2 direkt im Code) ---------------------
-
-constexpr uint16_t pal(char c) {
-  switch (c) {
-    case 'y': return rgb(255, 210, 0);
-    case 'o': return rgb(230, 120, 0);
-    case 'k': return rgb(0, 0, 0);
-    case 'r': return rgb(255, 60, 80);
-    case 'w': return rgb(255, 255, 255);
-    default:  return TRANSPARENT;
-  }
-}
-
-template <size_t N>
-constexpr std::array<uint16_t, N> art(const char* s) {
-  std::array<uint16_t, N> a{};
-  for (size_t i = 0; i < N; ++i) a[i] = pal(s[i]);
-  return a;
-}
-
-// 8x8, 2 Frames (Augen offen / zu)
-constexpr auto kBlobData = art<128>(
-    "..yyyy.."
-    ".yyyyyy."
-    "yywkywky"
-    "yykkykky"
-    "yyyyyyyy"
-    "yryyyyry"
-    ".oyrryo."
-    "..oooo.."
-    //
-    "..yyyy.."
-    ".yyyyyy."
-    "yyyyyyyy"
-    "yykkykky"
-    "yyyyyyyy"
-    "yryyyyry"
-    ".oyrryo."
-    "..oooo..");
-constexpr Sprite kBlob{8, 8, 2, kBlobData.data()};
-
-// 16x16 Icon: Farbbalken mit weißem Rahmen
-constexpr std::array<uint16_t, 256> makeIcon() {
-  constexpr uint16_t bars[7] = {color::WHITE, color::YELLOW, color::CYAN, color::GREEN,
-                                rgb(255, 0, 200), color::RED, color::BLUE};
-  std::array<uint16_t, 256> a{};
-  for (int y = 0; y < 16; ++y)
-    for (int x = 0; x < 16; ++x) {
-      bool border = x == 0 || y == 0 || x == 15 || y == 15;
-      a[size_t(y * 16 + x)] = border ? color::WHITE : (y > 11 ? rgb(40, 40, 40) : bars[(x - 1) / 2 % 7]);
-    }
-  return a;
-}
-constexpr auto kIconData = makeIcon();
-constexpr Sprite kIcon{16, 16, 1, kIconData.data()};
+// Assets aus games/testbild/assets/*.png (Asset-Konverter, SPEC 16.3)
+constexpr const Sprite& kBlob = assets::blob;  // 8x8, 2 Frames (Augen offen / zu)
+constexpr const Sprite& kIcon = assets::icon;
 
 constexpr uint16_t DIM = rgb(50, 50, 50);
 

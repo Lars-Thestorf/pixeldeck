@@ -4,7 +4,10 @@ add_library(pd_core STATIC
   src/font_data.cpp
   src/gfx.cpp
   src/input_system.cpp
+  src/os_apps.cpp
   src/runtime.cpp
+  src/settings.cpp
+  src/storage.cpp
   src/stubs.cpp
 )
 target_include_directories(pd_core

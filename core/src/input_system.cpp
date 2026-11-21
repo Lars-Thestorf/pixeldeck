@@ -1,5 +1,6 @@
 #include "input_system.h"
 
+#include "os_call.h"
 #include "pd/config.h"
 
 namespace pd {
@@ -11,7 +12,9 @@ Player& Input::player(int slot) {
 }
 
 void Player::rumble(uint16_t ms) {
-  if (connected_ && ms > 0) hal::input::rumble(deviceId_, ms);
+  if (!connected_ || ms == 0) return;
+  os::OsCallScope osCall;
+  hal::input::rumble(deviceId_, ms);
 }
 
 namespace os {

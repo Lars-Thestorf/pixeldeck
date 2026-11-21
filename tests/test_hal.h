@@ -11,5 +11,8 @@ extern uint64_t nowUs;
 extern int presents;
 extern bool quit;
 extern uint32_t lastRumbleMs;
-void reset();
+extern uint8_t brightness;
+extern void (*onPoll)(int frame);      // Eingabe-Skript, frame = bisherige present()-Aufrufe
+void reset();                          // ohne Speicher
+void clearStorage();
 }  // namespace testhal

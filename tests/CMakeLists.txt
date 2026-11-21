@@ -28,3 +28,21 @@ target_include_directories(pd_tests PRIVATE
   ${PROJECT_SOURCE_DIR}/core/src)
 target_link_libraries(pd_tests PRIVATE pd_core)
 add_test(NAME pd_tests COMMAND pd_tests)
+
+# Headless-Smoke-Tests (SPEC 15): jedes Spiel und der Launcher mit Zufallseingaben,
+# ohne Fenster. Prüft Abstürze, Hänger und das PNG-Ergebnis.
+set(smoke_dir ${CMAKE_BINARY_DIR}/smoke)
+file(MAKE_DIRECTORY ${smoke_dir})
+foreach(t IN LISTS PD_GAME_TARGETS)
+  string(REPLACE "pd_game_" "" id ${t})
+  add_test(NAME smoke_${id}
+    COMMAND pixeldeck --headless --game ${id} --ticks 3600 --seed 1 --fuzz-input 7
+            --data-dir ${smoke_dir}/data --out ${smoke_dir}/${id}.png)
+  set_tests_properties(smoke_${id} PROPERTIES TIMEOUT 60
+    FAIL_REGULAR_EXPRESSION "Heap-Allokation;\\[ERROR\\]")
+endforeach()
+add_test(NAME smoke_launcher
+  COMMAND pixeldeck --headless --ticks 20000 --seed 1 --fuzz-input 3
+          --data-dir ${smoke_dir}/data --out ${smoke_dir}/launcher.png)
+set_tests_properties(smoke_launcher PROPERTIES TIMEOUT 120
+  FAIL_REGULAR_EXPRESSION "Heap-Allokation;\\[ERROR\\]")

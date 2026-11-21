@@ -1,6 +1,6 @@
 # pixeldeck - Spezifikation
 
-Stand: 2026-11-21, Version 0.3 (Festlegungen aus der Umsetzung von M1 eingearbeitet; Version 0.2: Registry per CMake, WebPad-Protokoll im Core und Profilwahl beim Join im laufenden Spiel bestätigt)
+Stand: 2026-11-21, Version 0.4 (Festlegungen aus M1 und M2 eingearbeitet; Version 0.2: Registry per CMake, WebPad-Protokoll im Core und Profilwahl beim Join im laufenden Spiel bestätigt)
 
 pixeldeck ist ein kleines "Betriebssystem" mit Spielen für eine selbstgebaute Spielekonsole (ESP32 + 64x32 RGB-LED-Matrix). Derselbe C++-Code läuft nativ auf dem ESP32 und als Simulator am PC. Dieses Dokument beschreibt alles oberhalb der Hardware-Ansteuerung; die HAL wird hier nur als Schnittstelle spezifiziert.
 
@@ -318,7 +318,8 @@ public:
 };
 ```
 
-- Jedes Spiel speichert **einen Blob** in seinem Namensraum (= `id`). Zugriff auf fremde Daten nicht möglich.
+- Jedes Spiel speichert **einen Blob** in seinem Namensraum `g_<id>`, Schlüssel `save`. Zugriff auf fremde Daten nicht möglich.
+- Vor den Daten liegt ein 8-Byte-Kopf (Kennung, `saveVersion`, Länge). Das OS braucht dafür einen statischen Puffer von `PD_SAVE_MAX` + 8 Byte.
 - Versionierung über `saveVersion` aus den Metadaten: Erhöhen invalidiert alte Stände.
 - Geschrieben wird nur bei `save()`. Typische Stelle: `onShutdown()`.
 
@@ -329,7 +330,7 @@ public:
 | ESP32 | NVS (Wear-Leveling durch IDF); eigene NVS-Partition **[Annahme]** 64-128 KB |
 | PC | `~/.pixeldeck/` (Linux), `%APPDATA%\pixeldeck\` (Windows) |
 
-OS-Daten (Profile, Scores, Einstellungen) liegen in reservierten Namensräumen.
+OS-Daten (Profile, Scores, Einstellungen) liegen in reservierten Namensräumen ohne `g_`-Präfix, Einstellungen in `os/settings`. Namensräume und Schlüssel: nur `[a-z0-9_]`, max. 15 Zeichen. Am PC ist das Verzeichnis per `--data-dir` wählbar; geschrieben wird atomar (temporäre Datei, dann umbenennen).
 
 ---
 
@@ -480,11 +481,15 @@ Launcher und Systemmenü sind intern selbst Spiele über dieselbe API (Test der 
 
 - Karussell: ein Spiel pro Ansicht. Icon 16x16 links, rechts Name (5x7), darunter Rekord + Profilname (3x5) und Spielerzahl ("1-4P").
 - Links/Rechts (D-Pad oder Stick) blättert, A startet, Start öffnet das Systemmenü.
-- Statuszeile (3x5): Akkustand, WebPad an/aus, belegte Slots als farbige Punkte.
+- Statuszeile (3x5): Akkustand, WebPad an/aus, belegte Slots als farbige Punkte. Umgesetzt (M2): Position "n/m" links, Slot-Punkte rechts; Akku ab M3, WebPad ab M6. Rekord zeigt bis M4 "REK ---".
+- Der Launcher merkt sich das zuletzt gestartete Spiel (OS-Einstellungen) und wählt es beim nächsten Mal vor.
+- Namen bis 38 px Breite (6 Zeichen) in 5x7, längere in 3x5.
 
 ### 12.2 Systemmenü
 
 Aus dem Launcher per Start, im Spiel per Start+Select halten (Slot 0). Im Spiel liegt das Menü über dem **abgedunkelten, eingefrorenen Spielbild**.
+
+Umgesetzt (M2): Weiter, Beenden, Helligkeit; aus dem Launcher Helligkeit und Zurück. Bedienung: Hoch/Runter wählen, A ausführen, Links/Rechts Helligkeit, B oder Start schließt, Start+Select schließt ebenfalls. Das Bild wird beim Öffnen einmal im Framebuffer abgedunkelt (kein zweiter 4-KB-Puffer); ein Spiel, das nicht selbst `clear()` aufruft, sieht nach "Weiter" Reste davon. Helligkeit: 8 Stufen **[Annahme]** (12, 24, 44, 72, 108, 152, 204, 255), gespeichert in den OS-Einstellungen. "Beenden" führt immer in den Launcher, auch nach Direktstart.
 
 - Nur im Spiel: **Weiter**, **Spiel beenden**
 - **Spieler:** Slots mit Controller-Icon, tauschen, Profil wechseln
@@ -582,7 +587,8 @@ Stack der Hauptschleife: `PD_MAIN_STACK_SIZE`, Startwert **16 KB**. Große Array
 - **Screenshot und GIF-Aufnahme** per Taste, in Originalauflösung und hochskaliert. **[Offen]** GIF-Encoder auswählen, Lizenz prüfen.
 - **Power simulieren:** Tasten für Akku leer, lädt, Power-Taste (Shutdown).
 - **Zweites Tastaturlayout** als eigener Spieler (Pfeile vs. WASD), dazu SDL-Gamepads und Rumble.
-- **Headless-Modus:** `--headless --ticks N --out frame.png`, für Smoke-Tests in CI.
+- **Headless-Modus:** `--headless --ticks N --out frame.png`, für Smoke-Tests in CI. Ohne Fenster läuft eine virtuelle Uhr (so schnell wie möglich); die Tick-Messung ist dort ohne Aussage. `--fuzz-input <seed>` erzeugt zufällige Eingaben auf Slot 0. CTest startet jedes Spiel und den Launcher so; ein Test scheitert bei `[ERROR]` oder einer Heap-Warnung.
+- **Heap-Hook:** meldet `operator new` während Spielcode läuft. Aufrufe des Spiels in OS-Dienste (Storage, Rumble) sind ausgenommen, weil dort allokiert werden darf.
 - Hänger: Warnung im Log nach 5 s. Absturz: normaler Prozess-Crash mit Debugger.
 - Nicht vorgesehen: Hot-Reload von Spielcode.
 
@@ -640,8 +646,10 @@ pixeldeck/
 - PNGs liegen beim Spiel (`games/<id>/assets/`).
 - Der Konverter erzeugt beim Build `constexpr`-Arrays in RGB565 und einen Header `<id>_assets.h`. Generierte Dateien kommen nicht ins Repo.
 - PNG-Alpha (< 50 % **[Annahme]**) wird zu `TRANSPARENT`.
-- Spritesheets: Rastergröße im Dateinamen (`player_8x8.png`) oder per Begleitdatei.
-- `icon.png` (16x16) ist pro Spiel Pflicht.
+- Spritesheets: Rastergröße im Dateinamen (`player_8x8.png` → `assets::player`, Frames zeilenweise). Begleitdatei noch nicht umgesetzt.
+- `icon.png` (16x16) ist pro Spiel Pflicht; fehlt es, bricht CMake ab.
+- Opakes reines Magenta wird mit Warnung zu `0xF81E`.
+- Werkzeug: `tools/pd_assets.py` (Python 3 + Pillow). Der Header liegt unter `build/generated/<id>/`, Arrays haben interne Bindung, damit gleichnamige Assets verschiedener Spiele nicht kollidieren.
 
 ### 16.4 Konfigurationswerte
 
@@ -671,8 +679,8 @@ pixeldeck/
 
 Startspiele (eigene Designs, keine Nachbildungen bestehender Spiele):
 - **Snake** - 1P, Highscore
-- **Pong/Tennis** - 2P, testet Mehrspieler früh
-- **Fallblock-Spiel** - Highscore, Text, Spielstand
+- **Tennis** (`tennis`) - 1-2P; ohne zweiten Spieler steuert die CPU die rechte Seite. Erster mit 7 Punkten gewinnt.
+- **Fallblock-Spiel STAPEL** (`stapel`) - Zweierpaare farbiger Blöcke fallen in einen 6x10-Schacht; 3 oder mehr gleiche Farben waagerecht oder senkrecht lösen sich auf, Ketten zählen mehrfach. Highscore, Text, Spielstand (wird in `onShutdown` gesichert und beim nächsten Start fortgesetzt).
 - später ein **4-Spieler-Partyspiel** mit Lichtspuren als Zugpferd für das WebPad
 
 ---

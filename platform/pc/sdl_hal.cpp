@@ -31,7 +31,18 @@ struct State {
   uint8_t brightness = 255;
   bool quit = false;
   bool videoOk = false;
+  uint16_t lastFrame[MW * MH] = {};
+  uint64_t virtualUs = 0;        // Uhr im Headless-Modus
+  uint32_t fuzzState = 1;
+  uint16_t fuzzButtons = 0;
+  int8_t fuzzAxes[4] = {};
 } g;
+
+uint32_t fuzzNext() {  // xorshift32
+  uint32_t x = g.fuzzState;
+  x ^= x << 13; x ^= x >> 17; x ^= x << 5;
+  return g.fuzzState = x;
+}
 
 void logSdlError(const char* what) {
   std::fprintf(stderr, "[ERROR] %s: %s\n", what, SDL_GetError());
@@ -94,6 +105,8 @@ int8_t axis(const bool* k, SDL_Scancode neg, SDL_Scancode pos) {
 
 SimConfig& config() { return g.cfg; }
 
+bool writeLastFrame(const char* path) { return writePng(path, g.lastFrame, MW, MH); }
+
 void shutdown() {
   if (g.mask) SDL_DestroyTexture(g.mask);
   if (g.tex) SDL_DestroyTexture(g.tex);
@@ -113,6 +126,8 @@ namespace display {
 
 void init() {
   if (g.videoOk) return;
+  g.fuzzState = g.cfg.fuzzSeed ? g.cfg.fuzzSeed : 1;
+  if (g.cfg.headless) return;
   if (!SDL_Init(SDL_INIT_VIDEO)) { pd::pc::logSdlError("SDL_Init"); g.quit = true; return; }
   const int s = g.cfg.scale < 1 ? 1 : g.cfg.scale;
   g.win = SDL_CreateWindow("pixeldeck", pd::pc::MW * s, pd::pc::MH * s,
@@ -131,6 +146,7 @@ void init() {
 }
 
 void present(const uint16_t* fb) {
+  std::memcpy(g.lastFrame, fb, sizeof g.lastFrame);
   if (!g.videoOk) return;
   SDL_UpdateTexture(g.tex, nullptr, fb, pd::pc::MW * 2);
 
@@ -167,8 +183,25 @@ void setBrightness(uint8_t level) { g.brightness = level; }
 namespace input {
 
 size_t poll(Device* out, size_t max) {
-  pd::pc::handleEvents();
   if (max == 0) return 0;
+  Device& d = out[0];
+  d.id = 1;
+  d.type = DeviceType::Keyboard;
+  std::snprintf(d.name, sizeof d.name, "TASTATUR");
+  d.connected = true;
+  d.state = RawInput{0, 0, 0, 0, 0};
+
+  if (g.cfg.fuzzInput) {
+    // zufällig Buttons umschalten, Sticks gelegentlich neu setzen
+    if ((pd::pc::fuzzNext() & 7) == 0) g.fuzzButtons ^= uint16_t(1u << (pd::pc::fuzzNext() % 14));
+    if ((pd::pc::fuzzNext() & 31) == 0)
+      g.fuzzAxes[pd::pc::fuzzNext() % 4] = int8_t(int(pd::pc::fuzzNext() % 255) - 127);
+    d.state = RawInput{g.fuzzButtons, g.fuzzAxes[0], g.fuzzAxes[1], g.fuzzAxes[2], g.fuzzAxes[3]};
+  }
+  if (!g.videoOk) return 1;
+
+  pd::pc::handleEvents();
+  if (g.cfg.fuzzInput) return 1;
 
   // Slot 0: Tastatur, Layout 1 (SPEC 15). Scancodes = physische US-Position.
   const bool* k = SDL_GetKeyboardState(nullptr);
@@ -187,11 +220,6 @@ size_t poll(Device* out, size_t max) {
   for (const Map& m : kMap)
     if (k[m.sc]) buttons |= uint16_t(m.b);
 
-  Device& d = out[0];
-  d.id = 1;
-  d.type = DeviceType::Keyboard;
-  std::snprintf(d.name, sizeof d.name, "TASTATUR");
-  d.connected = true;
   d.state.buttons = buttons;
   d.state.lx = pd::pc::axis(k, SDL_SCANCODE_J, SDL_SCANCODE_L);
   d.state.ly = pd::pc::axis(k, SDL_SCANCODE_I, SDL_SCANCODE_K);
@@ -206,9 +234,13 @@ void rumble(uint32_t, uint16_t) {}  // Tastatur: No-Op; SDL-Gamepads folgen in M
 
 namespace time {
 
-uint64_t micros() { return SDL_GetTicksNS() / 1000u; }
+uint64_t micros() { return g.cfg.headless ? g.virtualUs : SDL_GetTicksNS() / 1000u; }
 
 void sleepUntil(uint64_t target) {
+  if (g.cfg.headless) {
+    if (target > g.virtualUs) g.virtualUs = target;
+    return;
+  }
   // grob schlafen, die letzte Millisekunde aktiv warten (Genauigkeit des Takts)
   for (;;) {
     const uint64_t now = micros();

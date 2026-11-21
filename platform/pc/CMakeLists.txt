@@ -19,6 +19,8 @@ add_executable(pixeldeck
   main.cpp
   sdl_hal.cpp
   heap_guard.cpp
+  png.cpp
+  storage_pc.cpp
   ${PD_GAME_REGISTRY}
 )
 target_link_libraries(pixeldeck PRIVATE pd_core pd_flags ${PD_GAME_TARGETS} SDL3::SDL3)

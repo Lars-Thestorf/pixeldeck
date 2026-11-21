@@ -8,7 +8,7 @@
 namespace pd::os {
 
 struct RunOptions {
-  const char* gameId = nullptr;  // nullptr: erstes Spiel (Launcher folgt in M2)
+  const char* gameId = nullptr;  // Direktstart; nullptr = Launcher
   bool        fixedSeed = false;
   uint32_t    seed = 0;
   uint32_t    maxTicks = 0;      // 0 = unbegrenzt

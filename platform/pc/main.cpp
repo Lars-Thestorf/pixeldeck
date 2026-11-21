@@ -11,17 +11,21 @@ namespace {
 void usage() {
   std::printf(
       "pixeldeck - PC-Simulator\n\n"
-      "  --game <id>         Spiel direkt starten (ohne: erstes Spiel)\n"
+      "  --game <id>         Spiel direkt starten (ohne: Launcher)\n"
       "  --seed <n>          PRNG-Seed festlegen (reproduzierbare Abläufe)\n"
       "  --scale <n>         Fenstergröße in Bildschirmpixeln pro LED (Standard 12)\n"
       "  --pixels            harte Pixel statt LED-Optik (umschaltbar mit F2)\n"
       "  --ticks <n>         nach n Ticks beenden\n"
       "  --tick-warn-us <n>  Warnung, wenn tick() länger dauert (Standard 1666, 0 = aus)\n"
+      "  --headless          ohne Fenster, virtuelle Uhr (braucht --ticks)\n"
+      "  --out <datei.png>   letztes Bild am Ende als PNG speichern (64x32)\n"
+      "  --fuzz-input <seed> zufällige Eingaben auf Slot 0 (Smoke-Tests)\n"
+      "  --data-dir <pfad>   Ablage für Spielstände/Einstellungen (Standard ~/.pixeldeck)\n"
       "  --list              registrierte Spiele auflisten\n"
       "  --help              diese Hilfe\n\n"
       "Tasten (Slot 0): Pfeile D-Pad, X/Z/S/A = A/B/X/Y, Q/W = L/R, Enter/RShift =\n"
       "Start/Select, IJKL linker Stick, Ziffernblock 8456 rechter Stick, U/KP0 = L3/R3.\n"
-      "Esc beendet, F2 LED-Optik/Pixel, Start+Select 1 s beendet das Spiel (Menü ab M2).\n");
+      "Esc beendet, F2 LED-Optik/Pixel. Systemmenü: Start im Launcher, Start+Select 1 s im Spiel.\n");
 }
 
 bool parseU32(const char* s, uint32_t& out) {
@@ -37,6 +41,7 @@ bool parseU32(const char* s, uint32_t& out) {
 
 int main(int argc, char** argv) {
   pd::os::RunOptions opts;
+  const char* out = nullptr;
   opts.tickWarnUs = 1666;  // [Annahme] ca. 1/10 des Tick-Budgets, siehe SPEC 15
 
   for (int i = 1; i < argc; ++i) {
@@ -63,6 +68,14 @@ int main(int argc, char** argv) {
       pd::pc::config().led = false;
     } else if (!std::strcmp(a, "--ticks") && parseU32(v, n)) {
       opts.maxTicks = n; ++i;
+    } else if (!std::strcmp(a, "--headless")) {
+      pd::pc::config().headless = true;
+    } else if (!std::strcmp(a, "--out") && v) {
+      out = v; ++i;
+    } else if (!std::strcmp(a, "--fuzz-input") && parseU32(v, n)) {
+      pd::pc::config().fuzzInput = true; pd::pc::config().fuzzSeed = n; ++i;
+    } else if (!std::strcmp(a, "--data-dir") && v) {
+      pd::pc::config().dataDir = v; ++i;
     } else if (!std::strcmp(a, "--tick-warn-us") && parseU32(v, n)) {
       opts.tickWarnUs = n; ++i;
     } else {
@@ -72,7 +85,16 @@ int main(int argc, char** argv) {
     }
   }
 
-  const int rc = pd::os::run(opts);
+  if (pd::pc::config().headless && opts.maxTicks == 0) {
+    std::fprintf(stderr, "--headless braucht --ticks <n>\n");
+    return 1;
+  }
+
+  int rc = pd::os::run(opts);
+  if (rc == 0 && out && !pd::pc::writeLastFrame(out)) {
+    std::fprintf(stderr, "[ERROR] PNG konnte nicht geschrieben werden: %s\n", out);
+    rc = 4;
+  }
   pd::pc::shutdown();
   return rc;
 }

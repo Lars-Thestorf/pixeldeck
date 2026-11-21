@@ -7,13 +7,27 @@
 #   PD_GAME_REGISTRY - Pfad der generierten game_registry.cpp
 function(pd_add_game id dir)
   file(GLOB_RECURSE srcs CONFIGURE_DEPENDS ${dir}/*.cpp)
-  add_library(pd_game_${id} STATIC ${srcs})
-  target_include_directories(pd_game_${id} PRIVATE ${dir})
+  file(GLOB pngs CONFIGURE_DEPENDS ${dir}/assets/*.png)
+  if(NOT EXISTS ${dir}/assets/icon.png)
+    message(FATAL_ERROR "Spiel '${id}': games/${id}/assets/icon.png (16x16) fehlt")
+  endif()
+  # Asset-Header <id>_assets.h (SPEC 16.3), wird nicht ins Repo eingecheckt
+  set(gen_dir ${CMAKE_BINARY_DIR}/generated/${id})
+  set(hdr ${gen_dir}/${id}_assets.h)
+  add_custom_command(
+    OUTPUT ${hdr}
+    COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/pd_assets.py --out ${hdr} ${pngs}
+    DEPENDS ${pngs} ${PROJECT_SOURCE_DIR}/tools/pd_assets.py
+    COMMENT "Assets ${id}"
+    VERBATIM)
+  add_library(pd_game_${id} STATIC ${srcs} ${hdr})
+  target_include_directories(pd_game_${id} PRIVATE ${dir} ${gen_dir})
   target_link_libraries(pd_game_${id} PRIVATE pd_core pd_flags)
   target_compile_definitions(pd_game_${id} PRIVATE PD_GAME_SYMBOL=${id})
 endfunction()
 
 function(pd_collect_games games_dir)
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
   # CONFIGURE_DEPENDS: neuer Spielordner löst beim nächsten Build ein Re-Configure aus
   file(GLOB game_cpps CONFIGURE_DEPENDS ${games_dir}/*/*.cpp)
   set(ids "")
