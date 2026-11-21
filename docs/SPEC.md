@@ -1,0 +1,691 @@
+# pixeldeck - Spezifikation
+
+Stand: 2026-11-21, Version 0.3 (Festlegungen aus der Umsetzung von M1 eingearbeitet; Version 0.2: Registry per CMake, WebPad-Protokoll im Core und Profilwahl beim Join im laufenden Spiel bestätigt)
+
+pixeldeck ist ein kleines "Betriebssystem" mit Spielen für eine selbstgebaute Spielekonsole (ESP32 + 64x32 RGB-LED-Matrix). Derselbe C++-Code läuft nativ auf dem ESP32 und als Simulator am PC. Dieses Dokument beschreibt alles oberhalb der Hardware-Ansteuerung; die HAL wird hier nur als Schnittstelle spezifiziert.
+
+Kennzeichnung: **[Annahme]** = begründete Festlegung ohne Messung oder ausdrückliche Entscheidung, vor der Umsetzung prüfen. **[Offen]** = noch zu klären.
+
+---
+
+## 1. Hardware-Rahmen
+
+| Komponente | Ausführung |
+|---|---|
+| MCU | ESP32 (klassisch, 2 Kerne, 240 MHz), 8 MB Flash, **kein PSRAM** |
+| Display | 64x32 RGB-LED-Matrix, HUB75 direkt an GPIOs, Ansteuerung per DMA |
+| Eingabe | Zweiter Mikrocontroller meldet Tastenzustand per UART |
+| Tasten | A, B, X, Y, L, R, Start, Select, D-Pad (4), linker + rechter Analogstick mit L3/R3 |
+| Power | Akkumessung und Power-Taste am zweiten µC, Daten per UART; Shutdown wird angekündigt |
+| Ton | noch keine Hardware |
+
+---
+
+## 2. Architektur
+
+```
+┌──────────────────────────────────────────────────────┐
+│ Spiele (games/*)                                     │  nur pd/*.h + erlaubte STL
+├──────────────────────────────────────────────────────┤
+│ Core / OS (core/)                                    │  plattformunabhängig
+│  Hauptschleife, Arena, Gfx, Fonts, Input-Snapshot,   │
+│  Slot-Manager, Profile, Scores, Storage, Synth,      │
+│  Launcher, Systemmenü, WebPad-Protokoll              │
+├──────────────────────────────────────────────────────┤
+│ HAL-Schnittstelle (core/include/pd/hal/*.h)          │  nur Deklarationen
+├────────────────────────┬─────────────────────────────┤
+│ platform/esp32 (IDF)   │ platform/pc (SDL3)          │  Implementierungen
+└────────────────────────┴─────────────────────────────┘
+```
+
+Grundsätze:
+- **Statisch gelinkt:** Alle Spiele werden mit dem OS in ein Binary kompiliert. Kein Nachladen.
+- **HAL ist "dumm":** Sie liefert Rohzustand und nimmt Ausgaben entgegen. Jede Logik (Flanken, Slot-Zuordnung, Menüs, Mischen) liegt im Core, damit sie auf allen Plattformen identisch ist.
+- **HAL-Bindung zur Link-Zeit:** Freie Funktionen, deklariert im Core, definiert in der Plattform. Keine virtuellen Klassen. Welche Plattform aktiv ist, entscheidet allein, was gelinkt wird.
+- **Core und Spiele haben keine Abhängigkeit auf SDL oder ESP-IDF.** Erzwungen über CMake-Targets.
+
+---
+
+## 3. Sprache und Regeln
+
+- **C++17.** Compiler: GCC (Xtensa) für ESP32, GCC/Clang am PC, MSVC optional.
+- Verboten bzw. abgeschaltet: Exceptions (`-fno-exceptions`), RTTI (`-fno-rtti`), `<iostream>`.
+- Keine Heap-Allokation in Spielen (`new`, `malloc`, allokierende STL-Container). Speicher nur über die Arena (Abschnitt 9). Am PC per Debug-Hook prüfbar.
+- Erlaubte STL: header-only und allokationsfrei, z. B. `<cstdint>`, `<array>`, `<algorithm>`, `<cstring>`, `<type_traits>`, `<limits>`.
+- Spiele sind single-threaded und laufen im OS-Task.
+- `float` ist auf dem ESP32 per FPU schnell, `double` wird in Software emuliert und ist langsam. Spiele sollen `double` meiden.
+- Determinismus ist **Empfehlung, keine Pflicht.** Wer nur `ctx.random()` und `ctx.tick()` nutzt, bekommt auf derselben Plattform reproduzierbare Abläufe.
+
+---
+
+## 4. Spiel-API
+
+### 4.1 Lebenszyklus
+
+Das OS besitzt die Hauptschleife. Pro Tick (fest **60 Hz**):
+
+1. HAL-Eingaben lesen, Slot-Manager aktualisieren, Input-Snapshot bilden
+2. OS-Kombination prüfen (Start+Select halten auf Slot 0)
+3. `game.tick(ctx)` - Logik **und** Zeichnen in einem Aufruf
+4. OS-Overlays (Verbindungsverlust, Akkuwarnung) über den Framebuffer legen
+5. `hal::display::present(framebuffer)`
+6. Bis zum nächsten Tick warten
+
+Schafft ein Spiel 60 Hz nicht, läuft es langsamer. Es werden keine Frames übersprungen. Budget pro Tick: ca. 16,6 ms inklusive OS-Anteil.
+
+```cpp
+namespace pd {
+
+class Game {
+public:
+  virtual ~Game() = default;
+  virtual void init(Context& ctx) {}        // einmal nach dem Anlegen; hier ctx.alloc() erlaubt
+  virtual void tick(Context& ctx) = 0;      // 60 Hz, Logik + Zeichnen
+  virtual void onShutdown(Context& ctx) {}  // vor Beenden oder bei angekündigtem Abschalten; hier speichern
+};
+
+}
+```
+
+- `onShutdown` wird aufgerufen bei: "Spiel beenden" im Systemmenü, `shutdownPending` von der Power-HAL. Danach wird das Spielobjekt zerstört und die Arena verworfen.
+- Während das Systemmenü offen ist, wird `tick()` **nicht** aufgerufen. Spiele brauchen keine eigene Pause-Logik.
+
+### 4.2 Registrierung und Metadaten
+
+```cpp
+PD_REGISTER_GAME(Snake, {
+  .id          = "snake",           // stabil, [a-z0-9_], max. 12 Zeichen
+  .name        = "SNAKE",           // Anzeige im Launcher
+  .icon        = assets::icon,      // 16x16 Sprite
+  .scoreMode   = ScoreMode::Higher, // None | Higher | Lower
+  .minPlayers  = 1,
+  .maxPlayers  = 4,
+  .saveVersion = 1,
+  .stickAsDpad = false,             // linken Stick zusätzlich als D-Pad melden
+});
+```
+
+- `sizeof(Game)` wird per `static_assert` gegen `PD_ARENA_SIZE` geprüft. Zu großes Spiel = Compile-Fehler.
+- Die `id` muss **gleich dem Ordnernamen** unter `games/` sein. CMake übergibt den Ordnernamen als `PD_GAME_SYMBOL`, daraus benennt das Makro die Registrierungsfunktion (`pd_game_entry_<id>`); Abweichung = Compile-Fehler. Das Makro steht im globalen Namensraum.
+- Die Länge von `id` wird zur Compile-Zeit geprüft (NVS-Namespaces sind auf 15 Zeichen begrenzt, 3 Zeichen sind für OS-Präfixe reserviert).
+- **[Annahme]** Designated Initializers sind formal C++20; GCC/Clang akzeptieren sie in C++17 als Erweiterung. Falls MSVC (Windows) relevant wird, auf Konstruktor- oder Builder-Syntax ausweichen.
+- Spiele werden **nicht** über statische Initialisierer registriert, weil der Linker unreferenzierte Objekte aus statischen Bibliotheken verwirft. Stattdessen erzeugt CMake aus allen Spielordnern eine Datei `game_registry.cpp`, die jede Registrierung explizit referenziert. Das Makro erzeugt dafür eine Funktion mit festem Namensschema.
+
+### 4.3 Context
+
+```cpp
+class Context {
+public:
+  Gfx&     gfx;
+  Input&   input;
+  Audio&   audio;
+  Storage& storage;
+  Scores&  scores;
+
+  uint32_t tick() const;                    // Ticks seit Spielstart, ohne Pausen
+  uint32_t random();                        // OS-PRNG (PCG32 oder xorshift32)
+  uint32_t random(uint32_t maxExclusive);
+  void*    alloc(size_t size, size_t align = alignof(std::max_align_t)); // nur in init()
+  void     log(const char* fmt, ...);
+};
+```
+
+- `ctx.tick()` ist die **einzige Zeitquelle** für Spiele. `uint32_t` reicht bei 60 Hz für ca. 2,2 Jahre.
+- Der PRNG wird bei jedem Spielstart aus `hal::random::seed()` initialisiert. Am PC per `--seed` festlegbar.
+
+---
+
+## 5. Grafik
+
+### 5.1 Framebuffer
+
+- 64x32 Pixel, **RGB565** (`uint16_t`, native Byte-Reihenfolge), 4 KB.
+- Gehört dem OS. Das Spiel zeichnet in `tick()` hinein, das OS übergibt ihn danach an `hal::display::present()`.
+- **Kein automatisches Löschen.** Wer neu zeichnen will, ruft `gfx.clear()`.
+- Gamma-Korrektur und Helligkeit sind Sache der HAL.
+
+### 5.2 Farben
+
+```cpp
+constexpr uint16_t rgb(uint8_t r, uint8_t g, uint8_t b) {
+  return uint16_t(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
+}
+constexpr uint16_t TRANSPARENT = 0xF81F;   // Magenta, Farbschlüssel für Sprites
+```
+
+Reines Magenta ist damit in Sprites nicht als sichtbare Farbe nutzbar.
+
+### 5.3 Zeichenfunktionen
+
+Alle Funktionen clippen. Koordinaten außerhalb des Bildschirms sind erlaubt.
+
+```cpp
+class Gfx {
+public:
+  static constexpr int W = 64, H = 32;
+
+  void     clear(uint16_t c = 0);
+  void     pixel(int x, int y, uint16_t c);
+  uint16_t get(int x, int y) const;         // außerhalb: 0
+
+  void hline(int x, int y, int w, uint16_t c);
+  void vline(int x, int y, int h, uint16_t c);
+  void line(int x0, int y0, int x1, int y1, uint16_t c);
+  void rect(int x, int y, int w, int h, uint16_t c);
+  void fillRect(int x, int y, int w, int h, uint16_t c);
+  void circle(int cx, int cy, int r, uint16_t c);
+  void fillCircle(int cx, int cy, int r, uint16_t c);
+
+  void blit(const Sprite& s, int x, int y, uint8_t flags = 0);  // FLIP_X, FLIP_Y
+
+  int  text(int x, int y, const char* str, uint16_t c, Font f = Font::Small); // gibt Breite zurück
+  int  textWidth(const char* str, Font f = Font::Small) const;
+
+  uint16_t* buffer();                       // direkter Zugriff, Zeilen hintereinander
+};
+```
+
+Nicht enthalten: Tilemaps, Rotation, Skalierung, Alpha-Blending, Kamera/Scroll-Offset.
+
+### 5.4 Sprites
+
+```cpp
+struct Sprite {
+  uint8_t w, h;
+  uint16_t frames;
+  const uint16_t* data;                     // im Flash, frames * w * h Pixel
+  Sprite frame(uint16_t n) const;
+};
+```
+
+### 5.5 Fonts
+
+| Font | Glyphe | Zeichen pro Zeile x Zeilen (inkl. 1 px Abstand) |
+|---|---|---|
+| `Font::Small` | 3x5 | 16 x 5 |
+| `Font::Large` | 5x7 | 10 x 4 |
+
+- Zeichensatz ASCII 32-126. Umlaute nur bei Bedarf nachrüsten.
+- `Font::Small` hat **keine Kleinbuchstaben**: a-z werden als A-Z gezeichnet. `Font::Large` hat eigene Kleinbuchstaben.
+- Beide Fonts sind im Projekt selbst gepixelt (`core/src/font_data.cpp`), keine Fremdvorlage.
+
+---
+
+## 6. Eingabe
+
+### 6.1 Buttons und Sticks
+
+16 Buttons in einer `uint16_t`-Bitmaske:
+
+```cpp
+enum class Button : uint16_t {
+  A = 1 << 0,  B = 1 << 1,  X = 1 << 2,  Y = 1 << 3,
+  L = 1 << 4,  R = 1 << 5,  Start = 1 << 6, Select = 1 << 7,
+  Up = 1 << 8, Down = 1 << 9, Left = 1 << 10, Right = 1 << 11,
+  L3 = 1 << 12, R3 = 1 << 13,
+  // Bits 14, 15 reserviert
+};
+
+struct Stick { int8_t x, y; };              // -127..127, Deadzone/Kalibrierung bereits angewendet
+                                            // Achsen wie der Bildschirm: x > 0 rechts, y > 0 unten
+```
+
+### 6.2 Spielersicht
+
+```cpp
+class Player {
+public:
+  bool connected() const;
+  bool held(Button b) const;
+  bool pressed(Button b) const;             // in diesem Tick neu gedrückt
+  bool released(Button b) const;            // in diesem Tick losgelassen
+  uint16_t buttons() const;                 // Rohmaske aller gehaltenen Buttons
+  Stick left() const;
+  Stick right() const;
+  const char* name() const;                 // Profilname oder "GAST"
+  uint16_t color() const;                   // Profilfarbe
+  void rumble(uint16_t ms);                 // No-Op, wenn das Gerät es nicht kann
+};
+
+class Input {
+public:
+  static constexpr int MAX_PLAYERS = 4;
+  Player& player(int slot);
+  // Kurzformen für Slot 0:
+  bool held(Button b) const;
+  bool pressed(Button b) const;
+  bool released(Button b) const;
+};
+```
+
+- **Snapshot:** Vor jedem `tick()` gebildet, während des Ticks konstant.
+- Spiele kennen den **Controller-Typ nicht**. Das OS kennt ihn (für Icons im Menü).
+- **Start+Select halten (ca. 1 s) auf Slot 0** öffnet das Systemmenü. Diese Kombination sieht das Spiel nie. Auf anderen Slots ohne OS-Funktion. Bis zum Systemmenü (M2) beendet die Kombination das laufende Spiel. Technisch: Sind beide gleichzeitig gehalten, blendet das OS beide aus, bis beide losgelassen sind; ein vorher allein gedrücktes Start erreicht das Spiel also kurz.
+- Slots oberhalb von `maxPlayers` sind für das Spiel immer `connected() == false`.
+- Mit `stickAsDpad` meldet das OS den linken Stick zusätzlich als D-Pad-Bits (Schwelle **[Annahme]** 50 % Auslenkung).
+
+### 6.3 Geräte und Slot-Manager
+
+- Quellen: eingebautes Pad (UART), WebPad (WLAN), am PC Tastatur (zwei Layouts) und SDL-Gamepads.
+- Jedes Gerät hat eine stabile ID, einen Typ (`Builtin`, `Keyboard`, `Gamepad`, `WebPad`) und einen Anzeigenamen.
+- **Slot 0** ist fest das eingebaute Pad, am PC die Tastatur (Layout 1).
+- Weitere Geräte belegen einen Slot erst nach **"Press A to join"**, und zwar den ersten freien.
+- **Trennung:** Slot bleibt für `PD_SLOT_HOLD_MS` (**[Annahme]** 10 s) reserviert. Kommt dasselbe Gerät (gleiche ID) zurück, bekommt es seinen Slot wieder. WebPad-ID = Token aus `localStorage` des Browsers.
+- Bei Trennung während eines Spiels: **kein Auto-Pause**, nur kurzes Overlay "P2 GETRENNT".
+- Slots tauschen im Systemmenü.
+
+### 6.4 Lobby
+
+Startet ein Spiel mit `minPlayers` > verbundenen Spielern, zeigt das OS zuerst eine Lobby ("PRESS A TO JOIN 1/2"). Start, sobald genug Spieler da sind. Spieler können auch während des Spiels joinen; ob das Spiel sie berücksichtigt, entscheidet es selbst.
+
+---
+
+## 7. Profile und Highscores
+
+### 7.1 Profile
+
+- Lokal auf der Konsole gespeichert, kein Netz-Account. Max. **16 Profile**.
+- Profil = **Name** (max. 8 Zeichen) + **Farbe** aus fester Palette (**[Annahme]** 8 Farben).
+- **Gast** gibt es immer, Name "GAST".
+- Anlegen, Umbenennen, Löschen im Systemmenü, ohne Schutz.
+- Auswahl beim Join:
+  - **WebPad:** Auswahl oder Neuanlage auf dem Handy. Handy merkt sich das Profil, danach genügt A.
+  - **Eingebautes Pad / Gamepad / Tastatur:** Kurze Profilliste auf der Matrix, vorausgewählt das zuletzt genutzte Profil des Geräts.
+  - Join **während eines laufenden Spiels** an Konsole oder Gamepad übernimmt ohne Auswahl das letzte Profil des Geräts (sonst Gast). Ändern über das Systemmenü. Grund: kein Auswahlbildschirm mitten im Spiel.
+
+### 7.2 Highscores
+
+- Nur für Spiele mit `scoreMode != None`. `Higher` oder `Lower` ist besser.
+- `ctx.scores.submit(slot, int32_t score)` ordnet den Score dem Profil im Slot zu. Keine Namenseingabe im Spiel.
+- Top 10 pro Spiel. Eintrag = Profil-ID, **Kopie des Namens**, Score. **[Annahme]** Die Namenskopie sorgt dafür, dass Einträge gelöschter Profile erhalten bleiben.
+- Gast-Scores werden gespeichert (als "GAST").
+- Launcher zeigt den Rekord pro Spiel. Systemmenü: Listen ansehen, pro Spiel zurücksetzen.
+
+---
+
+## 8. Storage
+
+### 8.1 Spiel-API
+
+```cpp
+class Storage {
+public:
+  // Lädt den Spielstand. false, wenn nicht vorhanden, Größe abweicht
+  // oder saveVersion nicht passt.
+  bool load(void* buf, size_t len);
+  bool save(const void* buf, size_t len);   // max. PD_SAVE_MAX (4 KB)
+  void erase();
+};
+```
+
+- Jedes Spiel speichert **einen Blob** in seinem Namensraum (= `id`). Zugriff auf fremde Daten nicht möglich.
+- Versionierung über `saveVersion` aus den Metadaten: Erhöhen invalidiert alte Stände.
+- Geschrieben wird nur bei `save()`. Typische Stelle: `onShutdown()`.
+
+### 8.2 Ablage
+
+| Plattform | Ort |
+|---|---|
+| ESP32 | NVS (Wear-Leveling durch IDF); eigene NVS-Partition **[Annahme]** 64-128 KB |
+| PC | `~/.pixeldeck/` (Linux), `%APPDATA%\pixeldeck\` (Windows) |
+
+OS-Daten (Profile, Scores, Einstellungen) liegen in reservierten Namensräumen.
+
+---
+
+## 9. Speicher
+
+- Statische **Arena** im `.bss`, Größe `PD_ARENA_SIZE` (Konfigurationswert, **Startwert 64 KB**, nach Messung auf der Hardware anpassen).
+- Spielobjekt per Placement-new an den Anfang der Arena.
+- `ctx.alloc()` = Bump-Allocator auf dem Rest, nur in `init()`. Kein `free`.
+- Beim Beenden: Destruktor, Arena komplett verworfen. Keine Lecks und keine Fragmentierung zwischen Spielen.
+- Der **PC-Build verwendet dieselbe Arena-Größe** und meldet den Höchststand.
+- Sprites, Fonts, Soundeffekte liegen als `const` im Flash und zählen nicht zur Arena.
+
+Grobe RAM-Bilanz ESP32 **[Annahme, nicht gemessen]**:
+
+| Posten | ca. |
+|---|---|
+| Nutzbares DRAM nach IDF-Start | 250-290 KB |
+| HUB75-DMA-Puffer | 20-30 KB |
+| WLAN + WebSocket (nur wenn aktiv) | 40-70 KB |
+| OS, Framebuffer, Stacks, Puffer | 30-40 KB |
+| Arena | 64 KB |
+
+---
+
+## 10. Audio
+
+Hardware fehlt noch. Die Spiel-API ist trotzdem festgelegt, damit Spiele schon Ton benutzen können; am PC funktioniert sie über SDL.
+
+- **Synth im Core**, 4 Kanäle: 2x Rechteck (einstellbare Pulsbreite), 1x Dreieck, 1x Rauschen.
+- Version 1: **nur Soundeffekte.** Musik (Tracker-Format) kommt später; die Kanal-API wird so gebaut, dass Musik ohne Bruch aufsetzt (z. B. ein Kanal für Effekte reservierbar).
+- Spiele schreiben Befehle in eine Queue; das Mischen läuft in einem eigenen Task.
+- Ausgabe an die HAL: **22 050 Hz, mono, `int16_t`**.
+- Globale Lautstärke und Stummschaltung im Systemmenü.
+
+```cpp
+struct Sfx {                                // Skizze, Details bei M5
+  Wave     wave;                            // Square, Triangle, Noise
+  uint16_t freqStart, freqEnd;              // Hz, linearer Sweep
+  uint16_t durationMs;
+  uint8_t  volume;                          // 0-255
+  uint8_t  duty;                            // nur Square
+  uint8_t  attackMs, releaseMs;
+};
+
+class Audio {
+public:
+  void play(const Sfx& sfx, int channel = -1);  // -1: OS wählt passenden Kanal
+  void stop(int channel);
+};
+```
+
+---
+
+## 11. HAL-Schnittstelle
+
+Alle Funktionen in `core/include/pd/hal/`, Namespace `pd::hal`. Die Plattform muss jede definieren. Signaturen sind ein Entwurf und dürfen bei der Umsetzung noch präzisiert werden.
+
+```cpp
+namespace pd::hal {
+
+namespace display {
+  void init();
+  void present(const uint16_t* fb);         // 64*32 RGB565, Zeile für Zeile
+  void setBrightness(uint8_t level);        // 0-255
+}
+
+namespace input {
+  enum class DeviceType : uint8_t { Builtin, Keyboard, Gamepad };
+  struct RawInput { uint16_t buttons; int8_t lx, ly, rx, ry; };  // kalibriert, mit Deadzone
+  struct Device {
+    uint32_t   id;                          // stabil über Neuverbindungen
+    DeviceType type;
+    char       name[16];
+    bool       connected;
+    RawInput   state;
+  };
+  size_t poll(Device* out, size_t max);     // alle bekannten Hardware-Geräte
+  void   rumble(uint32_t id, uint16_t ms);  // darf No-Op sein
+}
+
+namespace power {
+  struct PowerState {
+    uint16_t millivolts;
+    uint8_t  percent;
+    bool     charging;
+    bool     shutdownPending;               // Power-Taste gedrückt, Abschalten steht bevor
+  };
+  PowerState read();
+  void shutdownReady();                     // OS hat gesichert, darf abschalten
+}
+
+namespace time {
+  uint64_t micros();                        // monoton
+  void     sleepUntil(uint64_t micros);
+}
+
+namespace storage {
+  bool load(const char* ns, const char* key, void* buf, size_t len, size_t* outLen);
+  bool save(const char* ns, const char* key, const void* buf, size_t len);
+  bool erase(const char* ns, const char* key);
+}
+
+namespace log {
+  enum class Level : uint8_t { Debug, Info, Warn, Error };
+  void write(Level lvl, const char* msg);   // Formatierung macht der Core
+}
+
+namespace random {
+  uint32_t seed();                          // echter Zufall
+}
+
+namespace app {
+  bool quitRequested();                     // PC: Fenster geschlossen oder Esc; ESP32: immer false
+}
+
+namespace audio {                           // reserviert
+  void   init(uint32_t sampleRate);
+  size_t write(const int16_t* samples, size_t n);  // darf blockieren; ESP vorerst No-Op
+}
+
+namespace net {                             // Transport für WebPad, Protokoll liegt im Core
+  bool startAccessPoint(const char* ssid, const char* pass);
+  void stop();
+  void serveStatic(const char* path, const uint8_t* gz, size_t len, const char* mime);
+  void enableCaptivePortal(bool on);
+  using ClientId = uint32_t;
+  void setWebSocketHandlers(void (*onOpen)(ClientId),
+                            void (*onMessage)(ClientId, const uint8_t*, size_t),
+                            void (*onClose)(ClientId));
+  bool send(ClientId c, const uint8_t* data, size_t len);
+}
+
+}
+```
+
+Hinweise:
+- `input::poll` liefert nur Hardware-Geräte. WebPad-Geräte erzeugt der Core aus dem Protokoll und speist sie in denselben Slot-Manager. Die HAL stellt für das WebPad nur den Transport bereit (`net`), das Protokoll ist plattformunabhängig im Core.
+- `net`-Callbacks können aus einem anderen Task/Kern kommen. Der Core übernimmt die Daten in gesperrte Puffer.
+- **[Offen]** UART-Protokoll zum zweiten µC (Format, Baudrate, Kalibrierung der Sticks, Ablauf und Zeitfenster des Shutdown-Handshakes). Bewusst außerhalb dieser Spezifikation; bestimmt nur die ESP-Implementierung von `input` und `power`.
+
+---
+
+## 12. OS-Oberfläche
+
+Launcher und Systemmenü sind intern selbst Spiele über dieselbe API (Test der API, dieselbe Grafikbibliothek).
+
+### 12.1 Launcher
+
+- Karussell: ein Spiel pro Ansicht. Icon 16x16 links, rechts Name (5x7), darunter Rekord + Profilname (3x5) und Spielerzahl ("1-4P").
+- Links/Rechts (D-Pad oder Stick) blättert, A startet, Start öffnet das Systemmenü.
+- Statuszeile (3x5): Akkustand, WebPad an/aus, belegte Slots als farbige Punkte.
+
+### 12.2 Systemmenü
+
+Aus dem Launcher per Start, im Spiel per Start+Select halten (Slot 0). Im Spiel liegt das Menü über dem **abgedunkelten, eingefrorenen Spielbild**.
+
+- Nur im Spiel: **Weiter**, **Spiel beenden**
+- **Spieler:** Slots mit Controller-Icon, tauschen, Profil wechseln
+- **Profile:** anlegen, umbenennen, löschen
+- **WebPad:** an/aus, SSID + Passwort, QR-Code **[Offen]** (Version 1-2 passt auf 32 Pixel Höhe, Lesbarkeit auf LEDs testen; Text als Fallback)
+- **Helligkeit**, **Lautstärke**
+- **Highscores:** ansehen, pro Spiel zurücksetzen
+- **Info:** Firmware-Version, freier Heap, Arena-Höchststand, Tick-Dauer (Durchschnitt/Maximum), Akku in mV
+
+### 12.3 Overlays
+
+- Spieler getrennt / verbunden (kurz, oben)
+- Akku niedrig **[Annahme]** unter 10 %
+- Hinweis nach Absturz oder Watchdog-Reset (siehe 14.2)
+
+---
+
+## 13. WebPad
+
+Optional zuschaltbar im Systemmenü (RAM und Akku). Läuft auf ESP und PC.
+
+### 13.1 Netz und Seite
+
+- ESP spannt einen eigenen **Access Point** auf (SSID z. B. `PIXELDECK-XXXX`). Kein Heim-WLAN in Version 1.
+- **Captive Portal:** DNS beantwortet alle Anfragen mit der eigenen IP, Controller-Seite öffnet sich auf den meisten Handys automatisch.
+- Eine HTML-Datei mit inline JS/CSS, gzip-komprimiert im Flash, Ziel < 20 KB.
+- Querformat, Nintendo-Layout: zwei virtuelle Sticks, D-Pad, ABXY, L/R, Start/Select. L3/R3 per Doppeltipp auf den Stick. Multitouch.
+- Profilauswahl und -anlage auf dem Handy; Token und Profil im `localStorage`.
+- Rumble über die Vibration-API des Browsers. **[Annahme]** funktioniert auf Android, nicht auf iOS Safari; nicht aktuell geprüft.
+- **[Offen]** Passwortschema des AP (fest, pro Gerät generiert, oder offen).
+
+### 13.2 Protokoll (Entwurf)
+
+WebSocket, **binär, zustandsbasiert**, Little Endian.
+
+Client → Konsole:
+
+| Typ | Name | Inhalt |
+|---|---|---|
+| `0x01` | HELLO | Token (16 Byte), Profil-ID (`0xFF` = Gast) |
+| `0x02` | STATE | Buttons `u16`, lx, ly, rx, ry (`i8`) |
+| `0x03` | PROFILE_CREATE | Name (8 Byte, nullgefüllt), Farbindex `u8` |
+
+Konsole → Client:
+
+| Typ | Name | Inhalt |
+|---|---|---|
+| `0x81` | WELCOME | Slot (`0xFF` = noch nicht gejoint), Profilliste |
+| `0x82` | SLOT | neuer Slot nach Join/Tausch |
+| `0x83` | RUMBLE | Dauer ms `u16` |
+
+- STATE wird bei jeder Änderung und zusätzlich alle **100 ms** als Heartbeat gesendet. Kein Ereignisstrom, damit keine "hängenden" Tasten.
+- Kein Heartbeat für **1 s** = getrennt (Slot bleibt reserviert, siehe 6.3).
+- Latenz **[Annahme]** 10-50 ms; für Party-Spiele ausreichend, für präzise Geschicklichkeitsspiele grenzwertig.
+
+---
+
+## 14. ESP32-Laufzeit
+
+### 14.1 Tasks
+
+| Kern | Aufgaben |
+|---|---|
+| 0 | WLAN-Stack, HTTP/WebSocket, UART-Empfang, Audio-Mixer |
+| 1 | OS-Hauptschleife: Snapshot → `tick()` → `present()` |
+
+HUB75-DMA läuft ohne CPU-Last. Datenaustausch zwischen den Kernen nur über kleine gesperrte Puffer (Input-Zustand, Audio-Queue).
+
+Stack der Hauptschleife: `PD_MAIN_STACK_SIZE`, Startwert **16 KB**. Große Arrays gehören in die Arena, nicht auf den Stack.
+
+### 14.2 Hänger und Abstürze
+
+- **Task-Watchdog** auf der Hauptschleife, Timeout **5 s** → Reset.
+- **Panic** (Nullzeiger, Stack-Überlauf) → IDF-Panic-Reset, Backtrace über UART.
+- Vor bzw. bei beidem werden Grund und Spiel-ID im RTC-Speicher abgelegt. Nach dem Neustart zeigt das OS "SNAKE HAT NICHT REAGIERT" bzw. "SNAKE ABGESTÜRZT" und landet im Launcher.
+- **Kein automatischer Neustart** des Spiels (Boot-Schleife).
+- Letzte Rettung bleibt die Power-Taste am zweiten µC.
+
+### 14.3 Shutdown
+
+1. `shutdownPending` wird gesetzt.
+2. OS ruft `onShutdown()` des laufenden Spiels, sichert OS-Daten, zeigt kurz "BYE".
+3. OS ruft `hal::power::shutdownReady()`.
+4. **[Offen]** Maximale Wartezeit des zweiten µC, falls `shutdownReady` nie kommt.
+
+---
+
+## 15. PC-Simulator
+
+- SDL3-Fenster, Matrix hochskaliert.
+- **LED-Optik:** runde Punkte mit dunklem Raster, umschaltbar auf harte Pixel.
+- **Direktstart:** `pixeldeck --game snake --seed 42` überspringt den Launcher.
+- **Tick-Budget-Warnung:** misst `tick()`, warnt bei Überschreitung eines Grenzwerts (`--tick-warn-us`, Standard **[Annahme]** 1666 µs = ca. 1/10 des Budgets, 0 = aus). **[Annahme]** Der PC ist grob 10-50x schneller als der ESP32; die Warnung ist nur ein Grobfilter, maßgeblich ist die Messung auf dem Gerät (Info-Menü).
+- **Arena-Statistik:** Höchststand pro Spiel, Warnung über 80 %.
+- **Screenshot und GIF-Aufnahme** per Taste, in Originalauflösung und hochskaliert. **[Offen]** GIF-Encoder auswählen, Lizenz prüfen.
+- **Power simulieren:** Tasten für Akku leer, lädt, Power-Taste (Shutdown).
+- **Zweites Tastaturlayout** als eigener Spieler (Pfeile vs. WASD), dazu SDL-Gamepads und Rumble.
+- **Headless-Modus:** `--headless --ticks N --out frame.png`, für Smoke-Tests in CI.
+- Hänger: Warnung im Log nach 5 s. Absturz: normaler Prozess-Crash mit Debugger.
+- Nicht vorgesehen: Hot-Reload von Spielcode.
+
+Standard-Tastaturbelegung Slot 0 **[Annahme]**:
+
+| Taste | Funktion |
+|---|---|
+| Pfeiltasten | D-Pad |
+| X / Z / S / A | A / B / X / Y |
+| Q / W | L / R |
+| Enter / Rechts-Shift | Start / Select |
+| I J K L | linker Stick |
+| Ziffernblock 8 4 5 6 | rechter Stick |
+| U / Ziffernblock 0 | L3 / R3 **[Annahme]** |
+| Esc / F2 | Simulator beenden / LED-Optik und Pixel umschalten |
+
+Tasten gelten nach **physischer Position im US-Layout** (SDL-Scancodes). Auf deutschem QWERTZ liegt B daher auf der Taste "Y".
+
+---
+
+## 16. Build, Repo, Assets, Tests
+
+### 16.1 Werkzeuge
+
+- **ESP32:** ESP-IDF (aktuelle 5.x), CMake. HUB75 über `ESP32-HUB75-MatrixPanel-DMA` als IDF-Komponente (**[Annahme]** MIT-Lizenz, vor Übernahme prüfen).
+- **PC:** CMake, SDL3. Linux ist Pflicht, Windows optional.
+- **Assets:** Python 3 + Pillow (Python ist durch ESP-IDF ohnehin vorhanden).
+- **Tests:** doctest (MIT-Lizenz, header-only).
+
+### 16.2 Verzeichnisse
+
+```
+pixeldeck/
+├── CMakeLists.txt            # PC-Build
+├── core/
+│   ├── include/pd/           # Spiel-API
+│   │   └── hal/              # HAL-Schnittstelle (nur Header)
+│   └── src/                  # OS
+├── platform/
+│   ├── pc/                   # SDL3-HAL, Simulator, main()
+│   └── esp32/                # IDF-Projekt, HAL, app_main()
+├── games/<id>/               # game.cpp, assets/icon.png, ...
+├── web/                      # WebPad-Seite
+├── tools/                    # Asset-Konverter
+├── docs/                     # diese Spezifikation
+└── tests/                    # Unit-Tests (Test-HAL) + Headless-Smoke-Tests
+```
+
+- `core` und `games` linken weder SDL noch IDF. Falscher Include = Build-Fehler.
+- Spiele werden automatisch aus `games/*` eingesammelt, Ausschluss per Konfigurationsliste.
+- Unit-Tests linken gegen eine dritte, minimale **Test-HAL**.
+
+### 16.3 Asset-Pipeline
+
+- PNGs liegen beim Spiel (`games/<id>/assets/`).
+- Der Konverter erzeugt beim Build `constexpr`-Arrays in RGB565 und einen Header `<id>_assets.h`. Generierte Dateien kommen nicht ins Repo.
+- PNG-Alpha (< 50 % **[Annahme]**) wird zu `TRANSPARENT`.
+- Spritesheets: Rastergröße im Dateinamen (`player_8x8.png`) oder per Begleitdatei.
+- `icon.png` (16x16) ist pro Spiel Pflicht.
+
+### 16.4 Konfigurationswerte
+
+| Name | Startwert |
+|---|---|
+| `PD_ARENA_SIZE` | 64 KB |
+| `PD_SAVE_MAX` | 4 KB |
+| `PD_MAIN_STACK_SIZE` | 16 KB |
+| `PD_TICK_HZ` | 60 |
+| `PD_WATCHDOG_MS` | 5000 |
+| `PD_SLOT_HOLD_MS` | 10000 |
+| `PD_AUDIO_RATE` | 22050 |
+| `PD_MAX_PROFILES` | 16 |
+
+---
+
+## 17. Meilensteine
+
+| | Inhalt |
+|---|---|
+| **M1 Gerüst (PC)** | CMake, Game-API, Arena, Gfx + beide Fonts, Input-Snapshot Slot 0 (Tastatur), SDL3-Fenster mit LED-Optik, Direktstart, Testspiel |
+| **M2 Spiele + Launcher** | Launcher, Systemmenü (Weiter/Beenden/Helligkeit), Storage, Asset-Konverter, Headless-Smoke-Test, Snake, Pong, Fallblock-Spiel |
+| **M3 ESP32** | IDF-Projekt, HAL für Display/Time/Storage/Log/Random, Watchdog und Crash-Meldung; Input/Power vorerst Platzhalter |
+| **M4 Mehrspieler + Profile** | Slot-Manager, Join, Lobby, Profile, Highscores, SDL-Gamepads, zweites Tastaturlayout |
+| **M5 Audio** | Synth, Sfx-API, SDL-Ausgabe; ESP-Ausgabe erst mit Hardware |
+| **M6 WebPad** | AP, Captive Portal, WebSocket-Protokoll, Controller-Seite, Rumble, auch am PC |
+
+Startspiele (eigene Designs, keine Nachbildungen bestehender Spiele):
+- **Snake** - 1P, Highscore
+- **Pong/Tennis** - 2P, testet Mehrspieler früh
+- **Fallblock-Spiel** - Highscore, Text, Spielstand
+- später ein **4-Spieler-Partyspiel** mit Lichtspuren als Zugpferd für das WebPad
+
+---
+
+## 18. Offene Punkte
+
+1. UART-Protokoll zum zweiten µC inkl. Stick-Kalibrierung und Shutdown-Handshake (Zeitfenster)
+2. RAM-Messung auf der Hardware → `PD_ARENA_SIZE`, `PD_MAIN_STACK_SIZE`, Größe der NVS-Partition
+3. Tick-Dauer typischer Spiele auf dem ESP messen, Grenzwert für die PC-Warnung ableiten
+4. Audio-Hardware (I2S-DAC oder interner DAC)
+5. ~~Fonts erstellen bzw. lizenzkonforme Quelle wählen~~ erledigt in M1 (selbst gepixelt)
+6. QR-Code-Lesbarkeit auf der Matrix testen
+7. WLAN-Passwortschema für das WebPad
+8. GIF-Encoder für den Simulator auswählen (Lizenz)
+9. Registrierungs-Syntax, falls Windows/MSVC wichtig wird (Designated Initializers)
+10. Lizenz von `ESP32-HUB75-MatrixPanel-DMA` bestätigen
