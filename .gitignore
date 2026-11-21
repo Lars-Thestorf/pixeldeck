@@ -1,8 +1,11 @@
 build/
 .cache/
 compile_commands.json
-# ESP-IDF (platform/esp32): sdkconfig wird aus sdkconfig.defaults erzeugt
-platform/esp32/managed_components/
-platform/esp32/sdkconfig
-platform/esp32/sdkconfig.old
+# ESP-IDF (platform/pixeldeck/esp32): sdkconfig wird aus sdkconfig.defaults erzeugt
+platform/pixeldeck/esp32/managed_components/
+platform/pixeldeck/esp32/sdkconfig
+platform/pixeldeck/esp32/sdkconfig.old
+# xmega-Build (platform/pixeldeck/xmega)
+platform/pixeldeck/xmega/obj/
+platform/pixeldeck/xmega/LaLeMa.*
 __pycache__/

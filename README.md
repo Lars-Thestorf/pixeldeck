@@ -25,7 +25,7 @@ Pillow für den Asset-Konverter (wird automatisch gesucht, alternativ `-DPD_ASSE
 Die HUB75-Lib (ESP32-HUB75-MatrixPanel-DMA 3.1.0, MIT) holt der IDF Component Manager.
 
 ```sh
-cd platform/esp32
+cd platform/pixeldeck/esp32
 idf.py set-target esp32       # einmalig
 idf.py build
 idf.py -p /dev/ttyACM0 flash  # flasht über die xmega-USB-Brücke
@@ -38,6 +38,21 @@ Hinweise:
 - Jedes Öffnen von `/dev/ttyACM0` startet den ESP neu (Linux setzt DTR/RTS, der xmega zieht EN).
   Für Log und Dev-Kanal den Port daher mit `tools/pd_serial.py serve` dauerhaft offen halten;
   vor `idf.py flash` beenden.
+
+## xmega (Eingabe- und Power-Controller)
+
+Firmware unter `platform/pixeldeck/xmega` (ATxmega128A4U, LUFA 170418 als Teilmenge unter
+`lufa/LUFA`, Lizenz dort). Übernommen aus dem HMatrix-Projekt, in M3 um festen 200-Hz-Takt und
+Power-Taste mit Gnadenfrist erweitert (SPEC 1.2).
+
+```sh
+cd platform/pixeldeck/xmega
+make                                          # braucht gcc-avr, avr-libc
+# DFU: Gerät aus, einen Joystick gedrückt halten, einschalten (USB dran)
+dfu-programmer atxmega128a4u erase
+dfu-programmer atxmega128a4u flash LaLeMa.hex
+dfu-programmer atxmega128a4u start
+```
 
 Dev-Kanal (nur mit `PD_DEV=ON`, Standard), mit System-Python (pyserial, Pillow):
 

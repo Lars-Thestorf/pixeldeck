@@ -6,7 +6,7 @@
 #   PD_GAME_TARGETS  - Liste der Spiel-Bibliotheken
 #   PD_GAME_REGISTRY - Pfad der generierten game_registry.cpp
 #
-# Wird vom PC-Build und vom IDF-Projekt (platform/esp32) eingebunden.
+# Wird vom PC-Build und vom IDF-Projekt (platform/pixeldeck/esp32) eingebunden.
 
 get_filename_component(PD_ROOT ${CMAKE_CURRENT_LIST_DIR}/.. ABSOLUTE)
 

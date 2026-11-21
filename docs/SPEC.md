@@ -32,7 +32,8 @@ Gamma-Korrektur in der HAL: RGB565 → 8 Bit je Kanal per Tabelle mit `PD_PANEL_
 
 ### 1.2 xmega-Link (M3)
 
-xmega-Firmware: `larsledmatrix/Software/platforms/HMatrix/xmega` (LUFA, ATxmega128A4U, 48 MHz),
+xmega-Firmware: `platform/pixeldeck/xmega` (aus dem HMatrix-Projekt übernommen; LUFA 170418 als
+Teilmenge in `lufa/LUFA`, ATxmega128A4U, 48 MHz),
 Flashen per DFU (Joystick beim Einschalten halten, `dfu-programmer atxmega128a4u erase/flash/start`).
 In M3 geändert: fester Sendetakt und Power-Taste (siehe unten); Protokoll unverändert.
 
@@ -82,7 +83,8 @@ Dauer-ISR mit 100-ms-Delays; die Hauptschleife stand, der ESP sah das Power-Bit 
 ├──────────────────────────────────────────────────────┤
 │ HAL-Schnittstelle (core/include/pd/hal/*.h)          │  nur Deklarationen
 ├────────────────────────┬─────────────────────────────┤
-│ platform/esp32 (IDF)   │ platform/pc (SDL3)          │  Implementierungen
+│ platform/pixeldeck/    │ platform/pc (SDL3)          │  Implementierungen
+│   esp32 (IDF)          │                             │
 └────────────────────────┴─────────────────────────────┘
 ```
 
@@ -697,7 +699,7 @@ Tasten gelten nach **physischer Position im US-Layout** (SDL-Scancodes). Auf deu
 
 ### 16.1 Werkzeuge
 
-- **ESP32:** ESP-IDF **v5.5**, CMake. Projekt unter `platform/esp32/`; Core und Spiele werden über dieselben CMake-Dateien eingebunden wie am PC. HUB75 über `ESP32-HUB75-MatrixPanel-DMA` **3.1.0** (MIT-Lizenz geprüft) per IDF Component Manager (Git-Tag, `dependencies.lock`).
+- **ESP32:** ESP-IDF **v5.5**, CMake. Projekt unter `platform/pixeldeck/esp32/`; Core und Spiele werden über dieselben CMake-Dateien eingebunden wie am PC. HUB75 über `ESP32-HUB75-MatrixPanel-DMA` **3.1.0** (MIT-Lizenz geprüft) per IDF Component Manager (Git-Tag, `dependencies.lock`).
 - **Dev-Kanal (ESP32, `PD_DEV=ON`):** Textbefehle `!<befehl>` über USB → xmega → ESP-RX (`fb`, `press`, `stick`, `stat`, `raw`, `hang`, `crash`, `reset`), Werkzeug `tools/pd_serial.py`. Im Release (`-DPD_DEV=OFF`) nicht enthalten.
 - **PC:** CMake, SDL3. Linux ist Pflicht, Windows optional.
 - **Assets:** Python 3 + Pillow (Python ist durch ESP-IDF ohnehin vorhanden).
@@ -714,7 +716,9 @@ pixeldeck/
 │   └── src/                  # OS
 ├── platform/
 │   ├── pc/                   # SDL3-HAL, Simulator, main()
-│   └── esp32/                # IDF-Projekt, HAL, app_main()
+│   └── pixeldeck/            # Konsole
+│       ├── esp32/            # IDF-Projekt, HAL, app_main()
+│       └── xmega/            # Firmware Eingabe/Power-Controller (LUFA), kein Teil der HAL
 ├── games/<id>/               # game.cpp, assets/icon.png, ...
 ├── web/                      # WebPad-Seite
 ├── tools/                    # Asset-Konverter
