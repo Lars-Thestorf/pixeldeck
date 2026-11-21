@@ -20,9 +20,12 @@ add_executable(pd_tests
   test_input.cpp
   test_runtime.cpp
   test_game.cpp
+  test_game_duo.cpp
+  test_profiles.cpp
   test_registry.cpp
 )
 set_source_files_properties(test_game.cpp PROPERTIES COMPILE_DEFINITIONS PD_GAME_SYMBOL=testgame)
+set_source_files_properties(test_game_duo.cpp PROPERTIES COMPILE_DEFINITIONS PD_GAME_SYMBOL=duo)
 target_include_directories(pd_tests PRIVATE
   ${CMAKE_BINARY_DIR}/_deps/doctest/doctest
   ${PROJECT_SOURCE_DIR}/core/src)

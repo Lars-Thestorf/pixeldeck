@@ -18,6 +18,10 @@ ctest --test-dir build        # Unit-Tests + Headless-Smoke-Tests
 Optionen: `./build/pixeldeck --help`. Esc beendet, F2 schaltet LED-Optik/Pixel.
 Systemmenü: Start im Launcher, Enter+Rechts-Shift 1 s halten im Spiel.
 
+Tastatur 1 (Spieler 1, rechte Hälfte): Pfeile, `;` `.` `O` `K` = A B X Y, `I`/`P` = L/R.
+Tastatur 2 (linke Hälfte): WASD, `H` `B` `T` `F` = A B X Y, `Q`/`E` = L/R, `2`/`1` = Start/Select.
+Tastatur 2 und SDL-Gamepads treten mit A bei; Profile, Spieler und Rekorde im Systemmenü.
+
 ## ESP32 (Konsole)
 
 Voraussetzungen: ESP-IDF **v5.5** (`IDF_PATH`, `. $IDF_PATH/export.sh`), System-Python 3 mit
@@ -72,7 +76,7 @@ Weitere Befehle: `stick <lx> <ly> <rx> <ry> [ms]`, `hang` (Watchdog-Test), `cras
 |---|---|
 | `snake` | Schlange, 1P, Highscore |
 | `stapel` | Fallblock-Spiel mit Farbreihen, 1P, Spielstand |
-| `tennis` | Schläger und Ball, 1-2P (CPU als Gegner) |
+| `tennis` | Schläger und Ball, 1-2P (CPU als Gegner, zweiter Spieler per Join) |
 | `testbild` | Testseiten für Eingabe, Fonts, Grafik, Sprites |
 
 ## Neues Spiel

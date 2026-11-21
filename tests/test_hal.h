@@ -11,6 +11,9 @@
 namespace testhal {
 extern pd::hal::input::Device device;  // Slot-0-Gerät
 extern bool deviceAttached;
+extern pd::hal::input::Device extra[4];  // weitere Geräte nach dem Slot-0-Gerät
+extern int extraCount;
+extern uint32_t lastRumbleId;
 extern uint64_t nowUs;
 extern int presents;
 extern bool quit;

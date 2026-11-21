@@ -17,6 +17,9 @@
 namespace testhal {
 pd::hal::input::Device device{};
 bool deviceAttached = true;
+pd::hal::input::Device extra[4] = {};
+int extraCount = 0;
+uint32_t lastRumbleId = 0;
 uint64_t nowUs = 0;
 int presents = 0;
 bool quit = false;
@@ -38,6 +41,15 @@ void reset() {
   std::strcpy(device.name, "TEST");
   device.connected = true;
   deviceAttached = true;
+  for (int i = 0; i < 4; ++i) {
+    extra[i] = {};
+    extra[i].id = 100 + uint32_t(i);
+    extra[i].type = pd::hal::input::DeviceType::Gamepad;
+    std::snprintf(extra[i].name, sizeof extra[i].name, "PAD %d", i);
+    extra[i].connected = true;
+  }
+  extraCount = 0;
+  lastRumbleId = 0;
   nowUs = 0;
   presents = 0;
   quit = false;
@@ -67,11 +79,15 @@ void setBrightness(uint8_t b) { testhal::brightness = b; }
 namespace input {
 size_t poll(Device* out, size_t max) {
   if (testhal::onPoll) testhal::onPoll(testhal::presents);
-  if (!testhal::deviceAttached || max == 0) return 0;
-  out[0] = testhal::device;
-  return 1;
+  size_t n = 0;
+  if (testhal::deviceAttached && n < max) out[n++] = testhal::device;
+  for (int i = 0; i < testhal::extraCount && n < max; ++i) out[n++] = testhal::extra[i];
+  return n;
 }
-void rumble(uint32_t, uint16_t ms) { testhal::lastRumbleMs = ms; }
+void rumble(uint32_t id, uint16_t ms) {
+  testhal::lastRumbleMs = ms;
+  testhal::lastRumbleId = id;
+}
 }  // namespace input
 namespace time {
 uint64_t micros() { return testhal::nowUs; }

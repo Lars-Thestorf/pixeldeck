@@ -23,9 +23,14 @@ void usage() {
       "  --data-dir <pfad>   Ablage für Spielstände/Einstellungen (Standard ~/.pixeldeck)\n"
       "  --list              registrierte Spiele auflisten\n"
       "  --help              diese Hilfe\n\n"
-      "Tasten (Slot 0): Pfeile D-Pad, X/Z/S/A = A/B/X/Y, Q/W = L/R, Enter/RShift =\n"
-      "Start/Select, IJKL linker Stick, Ziffernblock 8456 rechter Stick, U/KP0 = L3/R3.\n"
-      "Esc beendet, F2 LED-Optik/Pixel. Systemmenü: Start im Launcher, Start+Select 1 s im Spiel.\n");
+      "Tastatur 1 (Slot 0, rechte Hälfte): Pfeile D-Pad, ; . O K = A B X Y, I/P = L/R,\n"
+      "  Enter/RShift = Start/Select, Ziffernblock 8456 linker Stick,\n"
+      "  Pos1/Entf/Ende/Bild-ab rechter Stick, KP0/Bild-auf = L3/R3.\n"
+      "Tastatur 2 (linke Hälfte, Beitritt mit A): WASD D-Pad, H B T F = A B X Y, Q/E = L/R,\n"
+      "  2/1 = Start/Select.\n"
+      "Gamepads (SDL): Beitritt mit A (rechte Aktionstaste), Rumble wird unterstützt.\n"
+      "Tasten nach US-Position. Esc beendet, F2 LED-Optik/Pixel.\n"
+      "Systemmenü: Start im Launcher, Start+Select 1 s im Spiel.\n");
 }
 
 bool parseU32(const char* s, uint32_t& out) {

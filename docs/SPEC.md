@@ -1,6 +1,6 @@
 # pixeldeck - Spezifikation
 
-Stand: 2026-11-21, Version 0.5 (Festlegungen und Messwerte aus M3 eingearbeitet; Version 0.4: M1 und M2; Version 0.2: Registry per CMake, WebPad-Protokoll im Core und Profilwahl beim Join im laufenden Spiel bestätigt)
+Stand: 2026-11-22, Version 0.6 (Festlegungen aus M4 eingearbeitet: Slots, Lobby, Profile, Highscores, Tastaturlayouts, Gamepads; Version 0.5: Festlegungen und Messwerte aus M3; Version 0.4: M1 und M2; Version 0.2: Registry per CMake, WebPad-Protokoll im Core und Profilwahl beim Join im laufenden Spiel bestätigt)
 
 pixeldeck ist ein kleines "Betriebssystem" mit Spielen für eine selbstgebaute Spielekonsole (ESP32 + 64x32 RGB-LED-Matrix). Derselbe C++-Code läuft nativ auf dem ESP32 und als Simulator am PC. Dieses Dokument beschreibt alles oberhalb der Hardware-Ansteuerung; die HAL wird hier nur als Schnittstelle spezifiziert.
 
@@ -310,7 +310,7 @@ public:
 
 - **Snapshot:** Vor jedem `tick()` gebildet, während des Ticks konstant.
 - Spiele kennen den **Controller-Typ nicht**. Das OS kennt ihn (für Icons im Menü).
-- **Start+Select halten (ca. 1 s) auf Slot 0** öffnet das Systemmenü. Diese Kombination sieht das Spiel nie. Auf anderen Slots ohne OS-Funktion. Bis zum Systemmenü (M2) beendet die Kombination das laufende Spiel. Technisch: Sind beide gleichzeitig gehalten, blendet das OS beide aus, bis beide losgelassen sind; ein vorher allein gedrücktes Start erreicht das Spiel also kurz.
+- **Start+Select halten (ca. 1 s) am Primärgerät** (eingebautes Pad bzw. Tastatur 1, normalerweise Slot 0) öffnet das Systemmenü. Diese Kombination sieht das Spiel nie. An anderen Geräten ohne OS-Funktion. Technisch: Sind beide gleichzeitig gehalten, blendet das OS beide aus, bis beide losgelassen sind; ein vorher allein gedrücktes Start erreicht das Spiel also kurz.
 - Slots oberhalb von `maxPlayers` sind für das Spiel immer `connected() == false`.
 - Mit `stickAsDpad` meldet das OS den linken Stick zusätzlich als D-Pad-Bits (Schwelle **[Annahme]** 50 % Auslenkung).
 
@@ -324,9 +324,19 @@ public:
 - Bei Trennung während eines Spiels: **kein Auto-Pause**, nur kurzes Overlay "P2 GETRENNT".
 - Slots tauschen im Systemmenü.
 
+Umgesetzt (M4), `core/src/input_system.*`:
+- **Primärgerät** = erstes Gerät vom Typ `Builtin` oder `Keyboard` in der HAL-Liste. Es bekommt ohne A einen Slot (Slot 0, wenn frei) und bedient immer das OS (Launcher, Lobby, Menüs, Start+Select), auch wenn es per Tausch in einem anderen Slot sitzt. Es lässt sich nicht aus dem Slot entfernen.
+- Das A, mit dem ein Gerät beitritt, erreicht weder Spiel noch OS (ausgeblendet, bis losgelassen). Frisch verbundene Geräte erzeugen keine Flanken für bereits gehaltene Tasten.
+- Kanten (`pressed`/`released`) werden pro Gerät gebildet, nicht pro Slot; ein Tausch erzeugt keine Phantom-Flanken.
+- Reservierung zählt in Ticks (`PD_SLOT_HOLD_MS` bei 60 Hz). Während der Reservierung ist der Slot für das Spiel `connected() == false`, Name und Farbe bleiben.
+- Overlays (12.3): "P2 GETRENNT", "P2 ZURUECK", bei Join im Spiel "P2 <NAME>".
+- Am ESP gibt es bis M6 nur das eingebaute Pad; Slots 1-3 sind dort erst mit dem WebPad nutzbar.
+
 ### 6.4 Lobby
 
 Startet ein Spiel mit `minPlayers` > verbundenen Spielern, zeigt das OS zuerst eine Lobby ("PRESS A TO JOIN 1/2"). Start, sobald genug Spieler da sind. Spieler können auch während des Spiels joinen; ob das Spiel sie berücksichtigt, entscheidet es selbst.
+
+Umgesetzt (M4): Anzeige Spielname, "A: MITSPIELEN", "n/minPlayers" und je Slot bis `maxPlayers` ein Kästchen in Profilfarbe. Gezählt werden verbundene Slots unterhalb von `maxPlayers`. B am Primärgerät bricht ab und führt in den Launcher. Gilt auch für den Direktstart (`--game`). Gestartet wird erst nach der Profilwahl des neuen Spielers.
 
 ---
 
@@ -343,6 +353,15 @@ Startet ein Spiel mit `minPlayers` > verbundenen Spielern, zeigt das OS zuerst e
   - **Eingebautes Pad / Gamepad / Tastatur:** Kurze Profilliste auf der Matrix, vorausgewählt das zuletzt genutzte Profil des Geräts.
   - Join **während eines laufenden Spiels** an Konsole oder Gamepad übernimmt ohne Auswahl das letzte Profil des Geräts (sonst Gast). Ändern über das Systemmenü. Grund: kein Auswahlbildschirm mitten im Spiel.
 
+Umgesetzt (M4), `core/src/profiles.*`:
+- Ablage `os/profiles` (ein Blob, ca. 300 Byte): Profile in Anlagereihenfolge und pro Gerät (max. 8, älteste fallen heraus) das zuletzt genutzte Profil.
+- Profil-ID 1-254, Gast = `0xFF` (wie im WebPad-Protokoll). Neue IDs werden fortlaufend vergeben, gelöschte also erst nach einem Umlauf wieder, damit Highscore-Einträge nicht sofort einem neuen Profil zugeordnet werden.
+- Namen: Großbuchstaben, Ziffern, Leerzeichen, "-"; Leerzeichen am Ende werden entfernt, leere Namen abgelehnt.
+- Farbpalette **[Annahme]**: Rot, Orange, Gelb, Grün, Cyan, Blau, Violett, Pink. Gast ist weiß.
+- Ein Profil kann nur in einem Slot gleichzeitig sein. Ist das zuletzt genutzte Profil schon vergeben, spielt das Gerät als Gast.
+- Profilwahl nach dem Join (außerhalb eines Spiels): modaler Bildschirm "P2: WER BIST DU?", bedient vom beitretenden Gerät. Links/Rechts (oder Hoch/Runter) wählt zwischen Gast und freien Profilen, A bestätigt und merkt sich die Wahl für das Gerät, B (dort oder am Primärgerät) bricht den Join ab. Mehrere Joins werden nacheinander abgefragt. Ein neues Profil lässt sich dort nicht anlegen, nur im Systemmenü.
+- Das Primärgerät startet mit seinem zuletzt genutzten Profil, ohne Auswahl.
+
 ### 7.2 Highscores
 
 - Nur für Spiele mit `scoreMode != None`. `Higher` oder `Lower` ist besser.
@@ -350,6 +369,12 @@ Startet ein Spiel mit `minPlayers` > verbundenen Spielern, zeigt das OS zuerst e
 - Top 10 pro Spiel. Eintrag = Profil-ID, **Kopie des Namens**, Score. **[Annahme]** Die Namenskopie sorgt dafür, dass Einträge gelöschter Profile erhalten bleiben.
 - Gast-Scores werden gespeichert (als "GAST").
 - Launcher zeigt den Rekord pro Spiel. Systemmenü: Listen ansehen, pro Spiel zurücksetzen.
+
+Umgesetzt (M4), `core/src/score_table.*`:
+- Ablage: Namensraum `s_<id>`, Schlüssel `top`, 164 Byte. Geschrieben wird bei jedem `submit()`, der in die Liste kommt.
+- Bei Gleichstand steht der ältere Eintrag vorn.
+- **[Annahme]** Bei `Higher` zählen nur Scores > 0 (sonst füllen 0-Punkte-Runden die Liste). Bei `Lower` zählt jeder Wert.
+- Slot ohne Gerät oder außerhalb der Slots: Eintrag als Gast.
 
 ---
 
@@ -380,7 +405,7 @@ public:
 | ESP32 | NVS (Wear-Leveling durch IDF), Partition `nvs` 128 KB (M3), ein Blob pro Schlüssel |
 | PC | `~/.pixeldeck/` (Linux), `%APPDATA%\pixeldeck\` (Windows) |
 
-OS-Daten (Profile, Scores, Einstellungen) liegen in reservierten Namensräumen ohne `g_`-Präfix, Einstellungen in `os/settings`. Namensräume und Schlüssel: nur `[a-z0-9_]`, max. 15 Zeichen. Am PC ist das Verzeichnis per `--data-dir` wählbar; geschrieben wird atomar (temporäre Datei, dann umbenennen).
+OS-Daten (Profile, Scores, Einstellungen) liegen in reservierten Namensräumen ohne `g_`-Präfix: Einstellungen in `os/settings`, Profile in `os/profiles`, Highscores in `s_<id>/top`. Namensräume und Schlüssel: nur `[a-z0-9_]`, max. 15 Zeichen. Am PC ist das Verzeichnis per `--data-dir` wählbar; geschrieben wird atomar (temporäre Datei, dann umbenennen).
 
 ---
 
@@ -540,7 +565,7 @@ Launcher und Systemmenü sind intern selbst Spiele über dieselbe API (Test der 
 
 - Karussell: ein Spiel pro Ansicht. Icon 16x16 links, rechts Name (5x7), darunter Rekord + Profilname (3x5) und Spielerzahl ("1-4P").
 - Links/Rechts (D-Pad oder Stick) blättert, A startet, Start öffnet das Systemmenü.
-- Statuszeile (3x5): Akkustand, WebPad an/aus, belegte Slots als farbige Punkte. Umgesetzt (M2): Position "n/m" links, Slot-Punkte rechts; WebPad ab M6. Akku (M3): Batteriesymbol links der Slot-Punkte, grün, unter 10 % rot, beim Laden gelb; nur wenn `available`. Rekord zeigt bis M4 "REK ---".
+- Statuszeile (3x5): Akkustand, WebPad an/aus, belegte Slots als farbige Punkte. Umgesetzt (M2): Position "n/m" links, Slot-Punkte rechts; WebPad ab M6. Akku (M3): Batteriesymbol links der Slot-Punkte, grün, unter 10 % rot, beim Laden gelb; nur wenn `available`. Slot-Punkte (M4) in Profilfarbe, reservierte Slots blinken. Rekord (M4): Score in Gelb, dahinter der Profilname, wenn er noch in die Zeile passt; ohne Eintrag "REK ---".
 - Der Launcher merkt sich das zuletzt gestartete Spiel (OS-Einstellungen) und wählt es beim nächsten Mal vor.
 - Namen bis 38 px Breite (6 Zeichen) in 5x7, längere in 3x5.
 
@@ -550,6 +575,12 @@ Aus dem Launcher per Start, im Spiel per Start+Select halten (Slot 0). Im Spiel 
 
 Umgesetzt (M2): Weiter, Beenden, Helligkeit; aus dem Launcher Helligkeit und Zurück. Bedienung: Hoch/Runter wählen, A ausführen, Links/Rechts Helligkeit, B oder Start schließt, Start+Select schließt ebenfalls. Das Bild wird beim Öffnen einmal im Framebuffer abgedunkelt (kein zweiter 4-KB-Puffer); ein Spiel, das nicht selbst `clear()` aufruft, sieht nach "Weiter" Reste davon. Helligkeit: 8 Stufen **[Annahme]** (12, 24, 44, 72, 108, 152, 204, 255), gespeichert in den OS-Einstellungen. "Beenden" führt immer in den Launcher, auch nach Direktstart.
 
+Umgesetzt (M4): Hauptliste im Spiel WEITER, BEENDEN, SPIELER, PROFILE, REKORDE, HELL; im Launcher SPIELER, PROFILE, REKORDE, HELL, ZURUECK. Drei Zeilen sichtbar, das Fenster rollt mit, Rollbalken rechts. Start schließt das Menü von jeder Seite, B geht eine Ebene zurück. Die Unterseiten füllen den ganzen Bildschirm; nach "Weiter" sieht ein Spiel ohne `clear()` deren Reste.
+- **SPIELER:** vier Zeilen Slot, Profilfarbe, Name, Gerät (KON, TAS, PAD; reserviert blinkt). Hoch/Runter Slot, Links/Rechts Profil (Gast und freie Profile, wird für das Gerät gemerkt), A markiert, zweites A tauscht, X entfernt das Gerät aus dem Slot (nicht das Primärgerät).
+- **PROFILE:** Liste mit "+ NEU" am Ende, Anzahl "n/16". A öffnet den Editor: Hoch/Runter Zeichen, Links/Rechts Cursor, X Farbe, A speichern, B abbrechen, Y löschen mit Rückfrage "LOESCHEN? A JA B NEIN". Gelöschte Profile werden in Slots und Gerätezuordnung zu Gast.
+- **REKORDE:** Links/Rechts Spiel (nur mit `scoreMode`), vorgewählt das zuletzt gestartete, vier Einträge sichtbar, Hoch/Runter blättert, X setzt nach Rückfrage zurück.
+
+Gesamtumfang:
 - Nur im Spiel: **Weiter**, **Spiel beenden**
 - **Spieler:** Slots mit Controller-Icon, tauschen, Profil wechseln
 - **Profile:** anlegen, umbenennen, löschen
@@ -560,7 +591,7 @@ Umgesetzt (M2): Weiter, Beenden, Helligkeit; aus dem Launcher Helligkeit und Zur
 
 ### 12.3 Overlays
 
-- Spieler getrennt / verbunden (kurz, oben)
+- Spieler getrennt / verbunden (kurz, oben). Umgesetzt (M4): 2 s, Streifen 64x7 oben; der überdeckte Bildteil wird nach `present()` zurückgeschrieben, Spiele sehen das Overlay also nie im Framebuffer.
 - Akku niedrig **[Annahme]** unter 10 %
 - Hinweis nach Absturz oder Watchdog-Reset (siehe 14.2)
 
@@ -672,26 +703,26 @@ Gnadenfrist von 1,5 s (Abschnitt 1.2), damit ist Punkt 4 erledigt.
 - **Arena-Statistik:** Höchststand pro Spiel, Warnung über 80 %.
 - **Screenshot und GIF-Aufnahme** per Taste, in Originalauflösung und hochskaliert. **[Offen]** GIF-Encoder auswählen, Lizenz prüfen.
 - **Power simulieren:** Tasten für Akku leer, lädt, Power-Taste (Shutdown).
-- **Zweites Tastaturlayout** als eigener Spieler (Pfeile vs. WASD), dazu SDL-Gamepads und Rumble.
+- **Zweites Tastaturlayout** als eigener Spieler (Pfeile vs. WASD), dazu SDL-Gamepads und Rumble. Umgesetzt (M4): Layout 1 liegt dafür auf der rechten Tastaturhälfte (Tabelle unten), Layout 2 links. Beide sind Geräte vom Typ `Keyboard` (ID 1 und 2); Layout 2 tritt wie ein Gamepad per A bei.
+- **SDL-Gamepads (M4):** bis 6, Hotplug. Belegung nach Position wie am Nintendo-Pad **[Annahme]**: rechte Aktionstaste = A, untere = B, obere = X, linke = Y; Schultertasten und Trigger (> 50 %) = L/R, Back = Select. Sticks mit Totzone **[Annahme]** ca. 25 %. Geräte-ID aus GUID und Seriennummer (bei gleichen Pads ohne Seriennummer zusätzlich die Reihenfolge), damit derselbe Controller seinen Slot zurückbekommt. Rumble über `SDL_RumbleGamepad`. Im Headless- und Fuzz-Modus gibt es nur Tastatur 1.
 - **Headless-Modus:** `--headless --ticks N --out frame.png`, für Smoke-Tests in CI. Ohne Fenster läuft eine virtuelle Uhr (so schnell wie möglich); die Tick-Messung ist dort ohne Aussage. `--fuzz-input <seed>` erzeugt zufällige Eingaben auf Slot 0. CTest startet jedes Spiel und den Launcher so; ein Test scheitert bei `[ERROR]` oder einer Heap-Warnung.
 - **Heap-Hook:** meldet `operator new` während Spielcode läuft. Aufrufe des Spiels in OS-Dienste (Storage, Rumble) sind ausgenommen, weil dort allokiert werden darf.
 - Hänger: Warnung im Log nach 5 s. Absturz: normaler Prozess-Crash mit Debugger.
 - Nicht vorgesehen: Hot-Reload von Spielcode.
 
-Standard-Tastaturbelegung Slot 0 **[Annahme]**:
+Tastaturbelegung (seit M4, vorher lagen die Aktionstasten von Layout 1 auf X Z S A):
 
-| Taste | Funktion |
-|---|---|
-| Pfeiltasten | D-Pad |
-| X / Z / S / A | A / B / X / Y |
-| Q / W | L / R |
-| Enter / Rechts-Shift | Start / Select |
-| I J K L | linker Stick |
-| Ziffernblock 8 4 5 6 | rechter Stick |
-| U / Ziffernblock 0 | L3 / R3 **[Annahme]** |
-| Esc / F2 | Simulator beenden / LED-Optik und Pixel umschalten |
+| Funktion | Layout 1 (Primärgerät, rechts) | Layout 2 (links, Beitritt mit A) |
+|---|---|---|
+| D-Pad | Pfeiltasten | W A S D |
+| A / B / X / Y | ; / . / O / K (Raute um L) | H / B / T / F (Raute um G) |
+| L / R | I / P | Q / E |
+| Start / Select | Enter / Rechts-Shift | 2 / 1 |
+| linker Stick | Ziffernblock 8 4 5 6 | - |
+| rechter Stick | Pos1 / Entf / Ende / Bild-ab | - |
+| L3 / R3 | Ziffernblock 0 / Bild-auf | - |
 
-Tasten gelten nach **physischer Position im US-Layout** (SDL-Scancodes). Auf deutschem QWERTZ liegt B daher auf der Taste "Y".
+Esc beendet den Simulator, F2 schaltet LED-Optik und Pixel um. Tasten gelten nach **physischer Position im US-Layout** (SDL-Scancodes). Auf deutschem QWERTZ liegt ";" auf "Ö".
 
 ---
 
@@ -787,3 +818,6 @@ Startspiele (eigene Designs, keine Nachbildungen bestehender Spiele):
 9. Registrierungs-Syntax, falls Windows/MSVC wichtig wird (Designated Initializers)
 10. ~~Lizenz von `ESP32-HUB75-MatrixPanel-DMA` bestätigen~~ MIT, geprüft in M3
 11. ~~Sichtprüfung am Gerät~~ in M3 bestätigt (Bild wie am PC, Gamma 2,2 passt); Tastenzuordnung und Stick-Richtungen ebenfalls
+12. Profil anlegen direkt in der Profilwahl beim Join (bisher nur im Systemmenü)
+13. Gamepad-Belegung nach Position (Nintendo) am echten Controller prüfen; Xbox-Nutzer erwarten "A" unten
+14. Am ESP sind Slots 1-3 bis zum WebPad (M6) nicht erreichbar

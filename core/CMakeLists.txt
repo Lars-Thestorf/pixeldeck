@@ -5,7 +5,9 @@ add_library(pd_core STATIC
   src/gfx.cpp
   src/input_system.cpp
   src/os_apps.cpp
+  src/profiles.cpp
   src/runtime.cpp
+  src/score_table.cpp
   src/settings.cpp
   src/storage.cpp
   src/stubs.cpp

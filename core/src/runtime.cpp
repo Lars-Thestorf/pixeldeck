@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "os_call.h"
 #include "pcg32.h"
 #include "pd/hal/app.h"
 #include "pd/hal/display.h"
@@ -11,6 +12,7 @@
 #include "pd/hal/random.h"
 #include "pd/hal/time.h"
 #include "runtime_impl.h"
+#include "score_table.h"
 
 namespace pd::os {
 
@@ -77,6 +79,47 @@ const GameInfo* findGame(const char* id) {
 
 Runtime::Runtime() : arena_(g_arenaMem, sizeof g_arenaMem) {
   osCtx_.gameId_ = "os";
+  scores_.rt_ = this;
+  inputSys_.setProfiles(&profiles_);
+}
+
+void Runtime::cancelLobby() {
+  lobby_ = nullptr;
+  launcher_.enter();
+}
+
+void Runtime::saveProfiles() {
+  if (!profiles_.save()) logf(LogLevel::Warn, "Profile konnten nicht gespeichert werden");
+}
+
+void Runtime::setSlotProfile(int slot, uint8_t profileId) {
+  if (slot < 0 || slot >= InputSystem::SLOTS || !inputSys_.slot(slot).used) return;
+  inputSys_.setSlotProfile(slot, profileId);
+  profiles_.remember(inputSys_.slot(slot).deviceId, profileId);
+  saveProfiles();
+}
+
+void Runtime::deleteProfile(uint8_t id) {
+  if (!profiles_.remove(id)) return;
+  inputSys_.profileRemoved(id);
+  saveProfiles();
+}
+
+// Highscore des Profils im Slot (SPEC 7.2). Aufruf aus dem Spiel über Scores::submit.
+void Runtime::submitScore(int slot, int32_t score) {
+  if (!info_) return;
+  const GameMeta& m = info_->meta;
+  if (!ScoreTable::counts(m.scoreMode, score)) return;
+  uint8_t pid = kGuest;
+  if (slot >= 0 && slot < InputSystem::SLOTS && inputSys_.slot(slot).used)
+    pid = inputSys_.slot(slot).profileId;
+  const char* name = profiles_.name(pid);
+  static ScoreTable t;  // 164 Byte, nicht auf den Stack
+  t.load(m.id);
+  const int pos = t.insert(m.scoreMode, score, pid, name);
+  if (pos < 0) return;
+  if (!t.save(m.id)) logf(LogLevel::Warn, "Highscore '%s' nicht gespeichert", m.id);
+  logf(LogLevel::Info, "Highscore '%s': Platz %d, %s %d", m.id, pos + 1, name, int(score));
 }
 
 void Runtime::setBrightnessLevel(int level) {
@@ -110,6 +153,9 @@ void Runtime::startGame(const GameInfo& info) {
 
   logf(LogLevel::Info, "Starte '%s' (seed %u)", meta.id, unsigned(seed));
   info_ = &info;
+  lobby_ = nullptr;
+  pickQueue_ = 0;
+  pickSlot_ = -1;
   hal::app::setActivity(meta.id);  // ab hier gehen Hänger/Abstürze auf das Spiel
   {
     GameCodeScope scope;
@@ -213,6 +259,10 @@ void Runtime::beginShutdown() {
   shutdownIdleTicks_ = 0;
   menuOpen_ = false;
   noticeTicks_ = 0;
+  overlayTicks_ = 0;
+  lobby_ = nullptr;
+  pickQueue_ = 0;
+  pickSlot_ = -1;
   if (game_) endGame();  // ruft onShutdown() des Spiels
   saveSettings(settings_);
   gfx_.clear();
@@ -231,6 +281,130 @@ void Runtime::tickShutdown() {
   }
 }
 
+// --- Slots: Join, Trennung, Profilwahl (SPEC 6.3, 7.1, 12.3) -----------------------
+
+void Runtime::showOverlay(uint16_t color, const char* fmt, int slot, const char* arg) {
+  std::snprintf(overlay_, sizeof overlay_, fmt, slot + 1, arg ? arg : "");
+  overlayColor_ = color;
+  overlayTicks_ = 2 * PD_TICK_HZ;
+}
+
+void Runtime::handleSlotEvents() {
+  const uint8_t joined = inputSys_.joinedMask(), lost = inputSys_.lostMask(),
+                back = inputSys_.returnedMask(), expired = inputSys_.expiredMask();
+  if (joined | lost | back | expired) {
+    const int prim = inputSys_.primarySlot();
+    for (int s = 0; s < InputSystem::SLOTS; ++s) {
+      const uint8_t bit = uint8_t(1u << s);
+      const InputSystem::Slot& sl = inputSys_.slot(s);
+      if (joined & bit) {
+        logf(LogLevel::Info, "P%d: %s beigetreten", s + 1, inputSys_.deviceName(sl.deviceId));
+        if (s != prim) {
+          // im Spiel ohne Auswahl mit dem letzten Profil des Geräts, sonst Profilwahl
+          if (game_) showOverlay(profiles_.color(sl.profileId), "P%d %s", s, profiles_.name(sl.profileId));
+          else pickQueue_ |= bit;
+        }
+      }
+      if (lost & bit) {
+        logf(LogLevel::Info, "P%d getrennt, Slot reserviert", s + 1);
+        showOverlay(rgb(255, 60, 40), "P%d GETRENNT", s);
+      }
+      if (back & bit) {
+        logf(LogLevel::Info, "P%d wieder verbunden", s + 1);
+        showOverlay(rgb(60, 220, 60), "P%d ZURUECK", s);
+      }
+      if (expired & bit) logf(LogLevel::Info, "P%d freigegeben", s + 1);
+      if ((lost | expired) & bit) {
+        pickQueue_ &= uint8_t(~bit);
+        if (pickSlot_ == s) pickSlot_ = -1;
+      }
+    }
+  }
+
+  if (pickSlot_ < 0 && pickQueue_ && !game_ && !menuOpen_ && !shuttingDown_) {
+    int s = 0;
+    while (!(pickQueue_ & (1u << s))) ++s;
+    pickQueue_ &= uint8_t(~(1u << s));
+    const InputSystem::Slot& sl = inputSys_.slot(s);
+    if (sl.used && sl.present) {
+      pickSlot_ = s;
+      pickSel_ = 0;
+      pickFresh_ = true;
+      // vorgewählt: aktuelles Profil des Slots (= zuletzt genutztes des Geräts)
+      int idx = 0;
+      for (int i = 0; i < profiles_.count(); ++i) {
+        const uint8_t id = profiles_.at(i).id;
+        if (inputSys_.profileInUse(id, s)) continue;
+        ++idx;
+        if (id == sl.profileId) pickSel_ = idx;
+      }
+    }
+  }
+}
+
+// Profilwahl nach dem Join am eingebauten Pad, Gamepad oder an der Tastatur (SPEC 7.1).
+// Bedient vom beitretenden Gerät; B (dort oder am Primärgerät) bricht den Join ab.
+void Runtime::tickPicker() {
+  const int s = pickSlot_;
+  const InputSystem::Slot& sl = inputSys_.slot(s);
+  uint8_t ids[1 + Profiles::MAX];
+  int n = 0;
+  ids[n++] = kGuest;
+  for (int i = 0; i < profiles_.count(); ++i)
+    if (!inputSys_.profileInUse(profiles_.at(i).id, s)) ids[n++] = profiles_.at(i).id;
+  if (pickSel_ >= n) pickSel_ = 0;
+
+  const Player* p = inputSys_.devicePlayer(sl.deviceId);
+  if (!pickFresh_ && p) {
+    if (p->pressed(Button::Left) || p->pressed(Button::Up)) pickSel_ = (pickSel_ + n - 1) % n;
+    if (p->pressed(Button::Right) || p->pressed(Button::Down)) pickSel_ = (pickSel_ + 1) % n;
+    if (p->pressed(Button::A)) {
+      setSlotProfile(s, ids[pickSel_]);
+      logf(LogLevel::Info, "P%d spielt als %s", s + 1, profiles_.name(ids[pickSel_]));
+      pickSlot_ = -1;
+    } else if (p->pressed(Button::B) || osInput_.player(0).pressed(Button::B)) {
+      logf(LogLevel::Info, "P%d: Beitritt abgebrochen", s + 1);
+      inputSys_.removeSlot(s);
+      pickSlot_ = -1;
+    }
+  }
+  pickFresh_ = false;
+
+  Gfx& g = gfx_;
+  g.clear();
+  char buf[32];
+  std::snprintf(buf, sizeof buf, "P%d: WER BIST DU?", s + 1);
+  g.text((Gfx::W - g.textWidth(buf)) / 2, 0, buf, color::WHITE);
+  const uint8_t id = ids[pickSel_ < n ? pickSel_ : 0];
+  const char* name = profiles_.name(id);
+  const uint16_t c = profiles_.color(id);
+  if (g.textWidth(name, Font::Large) <= 54) g.text((Gfx::W - g.textWidth(name, Font::Large)) / 2, 11, name, c, Font::Large);
+  else g.text((Gfx::W - g.textWidth(name)) / 2, 12, name, c);
+  if (n > 1) {
+    g.text(0, 12, "<", color::GRAY);
+    g.text(61, 12, ">", color::GRAY);
+  }
+  const char* dev = inputSys_.deviceName(sl.deviceId);
+  g.text((Gfx::W - g.textWidth(dev)) / 2, 21, dev, color::GRAY);
+  g.text((Gfx::W - g.textWidth("A OK  B ZURUECK")) / 2, 27, "A OK  B ZURUECK", rgb(60, 60, 60));
+}
+
+// Kurzmeldung oben einblenden; der überdeckte Streifen wird danach zurückgeschrieben,
+// damit Spiele ohne clear() keine Reste sehen.
+void Runtime::presentFrame() {
+  if (overlayTicks_ == 0) {
+    hal::display::present(gfx_.buffer());
+    return;
+  }
+  --overlayTicks_;
+  uint16_t* fb = gfx_.buffer();
+  std::memcpy(overlaySave_, fb, sizeof overlaySave_);
+  gfx_.fillRect(0, 0, Gfx::W, kOverlayH, color::BLACK);
+  gfx_.text((Gfx::W - gfx_.textWidth(overlay_)) / 2, 1, overlay_, overlayColor_);
+  hal::display::present(fb);
+  std::memcpy(fb, overlaySave_, sizeof overlaySave_);
+}
+
 void Runtime::processRequests() {
   if (pendingEnd_) {
     pendingEnd_ = false;
@@ -246,8 +420,17 @@ void Runtime::processRequests() {
     const GameInfo* g = pendingStart_;
     pendingStart_ = nullptr;
     if (!game_) {
-      startGame(*g);
-      saveSettings(settings_);
+      const GameMeta& m = g->meta;
+      if (inputSys_.presentCount(m.maxPlayers) < m.minPlayers) {
+        if (lobby_ != g) {
+          logf(LogLevel::Info, "Lobby '%s': warte auf %u Spieler", m.id, unsigned(m.minPlayers));
+          lobby_ = g;
+          lobbyApp_.enter();
+        }
+      } else {
+        startGame(*g);
+        saveSettings(settings_);
+      }
     }
   }
 }
@@ -294,6 +477,12 @@ int Runtime::run(const RunOptions& opts) {
   hal::display::init();
   settings_ = Settings{};
   loadSettings(settings_);
+  profiles_.load();
+  inputSys_.reset();
+  lobby_ = nullptr;
+  pickQueue_ = 0;
+  pickSlot_ = -1;
+  overlayTicks_ = 0;
   setBrightnessLevel(settings_.brightnessLevel);
   shuttingDown_ = false;
   noticeTicks_ = 0;
@@ -302,12 +491,16 @@ int Runtime::run(const RunOptions& opts) {
 
   osCtx_.tick_ = 0;
   Pcg32::seed(osCtx_.rngState_, osCtx_.rngInc_, hal::random::seed(), kPcgStream);
-  if (direct) startGame(*direct);   // Direktstart überspringt den Launcher
-  else launcher_.enter();
 
   // Beim Start bereits gehaltene Tasten zählen nicht als "neu gedrückt".
-  inputSys_.update(input_, 1, true);
-  inputSys_.resetEdges(input_);
+  inputSys_.update(input_, osInput_, InputSystem::SLOTS, true, false);
+  inputSys_.resetEdges(input_, osInput_);
+
+  launcher_.enter();
+  if (direct) {                     // Direktstart überspringt den Launcher (ggf. Lobby)
+    requestStart(direct);
+    processRequests();
+  }
 
   const uint64_t period = 1000000u / PD_TICK_HZ;
   uint64_t next = hal::time::micros();
@@ -317,8 +510,9 @@ int Runtime::run(const RunOptions& opts) {
     if (opts.maxTicks && ticks >= opts.maxTicks) break;
 
     const bool gameView = game_ && !menuOpen_;
-    inputSys_.update(input_, gameView ? info_->meta.maxPlayers : 1,
-                     gameView ? info_->meta.stickAsDpad : true);
+    inputSys_.update(input_, osInput_, gameView ? info_->meta.maxPlayers : InputSystem::SLOTS,
+                     gameView ? info_->meta.stickAsDpad : true, !shuttingDown_);
+    handleSlotEvents();
     if (hal::app::quitRequested()) break;
     hal::app::heartbeat();
     power_ = hal::power::read();
@@ -336,6 +530,12 @@ int Runtime::run(const RunOptions& opts) {
       ++osCtx_.tick_;
     } else if (game_) {
       tickGame();
+    } else if (pickSlot_ >= 0) {
+      tickPicker();
+      ++osCtx_.tick_;
+    } else if (lobby_) {
+      lobbyApp_.tick(osCtx_);
+      ++osCtx_.tick_;
     } else {
       launcher_.tick(osCtx_);
       ++osCtx_.tick_;
@@ -343,7 +543,7 @@ int Runtime::run(const RunOptions& opts) {
     processRequests();
     ++ticks;
 
-    hal::display::present(gfx_.buffer());
+    presentFrame();
 
     // Fester Takt; zu langsame Ticks verlangsamen das Spiel, kein Frame-Skip.
     next += period;
@@ -359,6 +559,16 @@ int Runtime::run(const RunOptions& opts) {
   saveSettings(settings_);
   return 0;
 }
+
+}  // namespace pd::os
+
+void pd::Scores::submit(int slot, int32_t score) {
+  if (!rt_) return;
+  os::OsCallScope osCall;  // Speichern gehört dem OS (Heap-Hook am PC)
+  rt_->submitScore(slot, score);
+}
+
+namespace pd::os {
 
 int run(const RunOptions& opts) {
   static Runtime rt;  // 4 KB Framebuffer: nicht auf den Stack

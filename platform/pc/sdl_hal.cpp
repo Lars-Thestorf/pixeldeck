@@ -37,7 +37,81 @@ struct State {
   uint32_t fuzzState = 1;
   uint16_t fuzzButtons = 0;
   int8_t fuzzAxes[4] = {};
+  struct Pad {
+    SDL_Gamepad*   gp = nullptr;
+    SDL_JoystickID jid = 0;
+    uint32_t       id = 0;
+    char           name[16] = {};
+  };
+  static constexpr int kMaxPads = 6;
+  Pad pads[kMaxPads];
 } g;
+
+// Stabile Geräte-ID eines Gamepads: GUID + Seriennummer, bei gleichen Geräten ohne
+// Seriennummer zusätzlich die Reihenfolge. Hohes Bit gesetzt (Tastaturen: 1, 2).
+uint32_t padId(SDL_Gamepad* gp) {
+  char guid[64] = {};
+  SDL_GUIDToString(SDL_GetJoystickGUID(SDL_GetGamepadJoystick(gp)), guid, sizeof guid);
+  uint32_t h = 2166136261u;
+  auto mix = [&h](const char* s) {
+    for (; s && *s; ++s) h = (h ^ uint8_t(*s)) * 16777619u;
+  };
+  mix(guid);
+  mix(SDL_GetGamepadSerial(gp));
+  for (;;) {  // gleiche ID schon vergeben -> weiterzählen
+    bool dup = false;
+    for (const State::Pad& p : g.pads)
+      if (p.gp && p.id == (h | 0x80000000u)) dup = true;
+    if (!dup) break;
+    h = h * 16777619u + 1;
+  }
+  return h | 0x80000000u;
+}
+
+void openPad(SDL_JoystickID jid) {
+  for (State::Pad& p : g.pads)
+    if (p.gp && p.jid == jid) return;
+  for (State::Pad& p : g.pads) {
+    if (p.gp) continue;
+    SDL_Gamepad* gp = SDL_OpenGamepad(jid);
+    if (!gp) { std::fprintf(stderr, "[WARN] Gamepad: %s\n", SDL_GetError()); return; }
+    p.id = padId(gp);
+    p.gp = gp;
+    p.jid = jid;
+    const char* n = SDL_GetGamepadName(gp);
+    int k = 0;
+    for (; n && n[k] && k < int(sizeof p.name) - 1; ++k) {
+      char c = n[k];
+      if (c >= 'a' && c <= 'z') c = char(c - 'a' + 'A');
+      p.name[k] = (c >= 32 && c <= 126) ? c : ' ';
+    }
+    if (k == 0) std::snprintf(p.name, sizeof p.name, "GAMEPAD");
+    std::fprintf(stderr, "[INFO] Gamepad verbunden: %s (id %08x), A drücken zum Mitspielen\n",
+                 n ? n : "?", unsigned(p.id));
+    return;
+  }
+  std::fprintf(stderr, "[WARN] Gamepad ignoriert, schon %d verbunden\n", State::kMaxPads);
+}
+
+void closePad(SDL_JoystickID jid) {
+  for (State::Pad& p : g.pads)
+    if (p.gp && p.jid == jid) {
+      std::fprintf(stderr, "[INFO] Gamepad getrennt: %s\n", p.name);
+      SDL_CloseGamepad(p.gp);
+      p = State::Pad{};
+    }
+}
+
+// -32768..32767 -> -127..127 mit Totzone [Annahme] ca. 25 %
+int8_t padAxis(SDL_Gamepad* gp, SDL_GamepadAxis a) {
+  constexpr int kDead = 8000;
+  int v = SDL_GetGamepadAxis(gp, a);
+  const int mag = v < 0 ? -v : v;
+  if (mag <= kDead) return 0;
+  int out = (mag - kDead) * 127 / (32767 - kDead);
+  if (out > 127) out = 127;
+  return int8_t(v < 0 ? -out : out);
+}
 
 uint32_t fuzzNext() {  // xorshift32
   uint32_t x = g.fuzzState;
@@ -84,6 +158,12 @@ void handleEvents() {
       case SDL_EVENT_QUIT:
         g.quit = true;
         break;
+      case SDL_EVENT_GAMEPAD_ADDED:
+        openPad(ev.gdevice.which);
+        break;
+      case SDL_EVENT_GAMEPAD_REMOVED:
+        closePad(ev.gdevice.which);
+        break;
       case SDL_EVENT_KEY_DOWN:
         if (ev.key.repeat) break;
         if (ev.key.scancode == SDL_SCANCODE_ESCAPE) g.quit = true;
@@ -109,6 +189,8 @@ SimConfig& config() { return g.cfg; }
 bool writeLastFrame(const char* path) { return writePng(path, g.lastFrame, MW, MH); }
 
 void shutdown() {
+  for (State::Pad& p : g.pads)
+    if (p.gp) SDL_CloseGamepad(p.gp);
   if (g.mask) SDL_DestroyTexture(g.mask);
   if (g.tex) SDL_DestroyTexture(g.tex);
   if (g.ren) SDL_DestroyRenderer(g.ren);
@@ -129,7 +211,7 @@ void init() {
   if (g.videoOk) return;
   g.fuzzState = g.cfg.fuzzSeed ? g.cfg.fuzzSeed : 1;
   if (g.cfg.headless) return;
-  if (!SDL_Init(SDL_INIT_VIDEO)) { pd::pc::logSdlError("SDL_Init"); g.quit = true; return; }
+  if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) { pd::pc::logSdlError("SDL_Init"); g.quit = true; return; }
   const int s = g.cfg.scale < 1 ? 1 : g.cfg.scale;
   g.win = SDL_CreateWindow("pixeldeck", pd::pc::MW * s, pd::pc::MH * s,
                            SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
@@ -142,8 +224,9 @@ void init() {
   SDL_SetTextureScaleMode(g.tex, SDL_SCALEMODE_NEAREST);
   g.videoOk = true;
   std::fprintf(stderr,
-               "[INFO] Simulator: Esc beendet, F2 schaltet LED-Optik/Pixel. "
-               "Tasten nach US-Position (QWERTZ: B liegt auf 'Y').\n");
+               "[INFO] Simulator: Esc beendet, F2 schaltet LED-Optik/Pixel. Tastatur 1 rechts "
+               "(Pfeile, ; . O K), Tastatur 2 links (WASD, H B T F), Gamepads per A. "
+               "Tasten nach US-Position.\n");
 }
 
 void present(const uint16_t* fb) {
@@ -188,7 +271,7 @@ size_t poll(Device* out, size_t max) {
   Device& d = out[0];
   d.id = 1;
   d.type = DeviceType::Keyboard;
-  std::snprintf(d.name, sizeof d.name, "TASTATUR");
+  std::snprintf(d.name, sizeof d.name, "TASTATUR 1");
   d.connected = true;
   d.state = RawInput{0, 0, 0, 0, 0};
 
@@ -204,32 +287,87 @@ size_t poll(Device* out, size_t max) {
   pd::pc::handleEvents();
   if (g.cfg.fuzzInput) return 1;
 
-  // Slot 0: Tastatur, Layout 1 (SPEC 15). Scancodes = physische US-Position.
+  // Tastatur, zwei Layouts (SPEC 15). Scancodes = physische US-Position.
   const bool* k = SDL_GetKeyboardState(nullptr);
   using B = pd::Button;
   struct Map { SDL_Scancode sc; B b; };
-  static const Map kMap[] = {
-    {SDL_SCANCODE_UP, B::Up},       {SDL_SCANCODE_DOWN, B::Down},
-    {SDL_SCANCODE_LEFT, B::Left},   {SDL_SCANCODE_RIGHT, B::Right},
-    {SDL_SCANCODE_X, B::A},         {SDL_SCANCODE_Z, B::B},
-    {SDL_SCANCODE_S, B::X},         {SDL_SCANCODE_A, B::Y},
-    {SDL_SCANCODE_Q, B::L},         {SDL_SCANCODE_W, B::R},
-    {SDL_SCANCODE_RETURN, B::Start}, {SDL_SCANCODE_RSHIFT, B::Select},
-    {SDL_SCANCODE_U, B::L3},        {SDL_SCANCODE_KP_0, B::R3},  // [Annahme] L3/R3
+  // Layout 1, rechte Hälfte: Pfeile, Aktionstasten als Raute um L
+  static const Map kMap1[] = {
+    {SDL_SCANCODE_UP, B::Up},          {SDL_SCANCODE_DOWN, B::Down},
+    {SDL_SCANCODE_LEFT, B::Left},      {SDL_SCANCODE_RIGHT, B::Right},
+    {SDL_SCANCODE_SEMICOLON, B::A},    {SDL_SCANCODE_PERIOD, B::B},
+    {SDL_SCANCODE_O, B::X},            {SDL_SCANCODE_K, B::Y},
+    {SDL_SCANCODE_I, B::L},            {SDL_SCANCODE_P, B::R},
+    {SDL_SCANCODE_RETURN, B::Start},   {SDL_SCANCODE_RSHIFT, B::Select},
+    {SDL_SCANCODE_KP_0, B::L3},        {SDL_SCANCODE_PAGEUP, B::R3},
+  };
+  // Layout 2, linke Hälfte: WASD, Aktionstasten als Raute um G
+  static const Map kMap2[] = {
+    {SDL_SCANCODE_W, B::Up},           {SDL_SCANCODE_S, B::Down},
+    {SDL_SCANCODE_A, B::Left},         {SDL_SCANCODE_D, B::Right},
+    {SDL_SCANCODE_H, B::A},            {SDL_SCANCODE_B, B::B},
+    {SDL_SCANCODE_T, B::X},            {SDL_SCANCODE_F, B::Y},
+    {SDL_SCANCODE_Q, B::L},            {SDL_SCANCODE_E, B::R},
+    {SDL_SCANCODE_2, B::Start},        {SDL_SCANCODE_1, B::Select},
   };
   uint16_t buttons = 0;
-  for (const Map& m : kMap)
+  for (const Map& m : kMap1)
     if (k[m.sc]) buttons |= uint16_t(m.b);
-
   d.state.buttons = buttons;
-  d.state.lx = pd::pc::axis(k, SDL_SCANCODE_J, SDL_SCANCODE_L);
-  d.state.ly = pd::pc::axis(k, SDL_SCANCODE_I, SDL_SCANCODE_K);
-  d.state.rx = pd::pc::axis(k, SDL_SCANCODE_KP_4, SDL_SCANCODE_KP_6);
-  d.state.ry = pd::pc::axis(k, SDL_SCANCODE_KP_8, SDL_SCANCODE_KP_5);
-  return 1;
+  d.state.lx = pd::pc::axis(k, SDL_SCANCODE_KP_4, SDL_SCANCODE_KP_6);
+  d.state.ly = pd::pc::axis(k, SDL_SCANCODE_KP_8, SDL_SCANCODE_KP_5);
+  d.state.rx = pd::pc::axis(k, SDL_SCANCODE_DELETE, SDL_SCANCODE_PAGEDOWN);
+  d.state.ry = pd::pc::axis(k, SDL_SCANCODE_HOME, SDL_SCANCODE_END);
+
+  size_t n = 1;
+  if (n < max) {
+    Device& d2 = out[n++];
+    d2.id = 2;
+    d2.type = DeviceType::Keyboard;
+    std::snprintf(d2.name, sizeof d2.name, "TASTATUR 2");
+    d2.connected = true;
+    d2.state = RawInput{0, 0, 0, 0, 0};
+    for (const Map& m : kMap2)
+      if (k[m.sc]) d2.state.buttons |= uint16_t(m.b);
+  }
+
+  // SDL-Gamepads. Belegung nach Position wie am Nintendo-Pad [Annahme]:
+  // rechts = A, unten = B, oben = X, links = Y. Trigger zählen zusätzlich als L/R.
+  struct PadMap { SDL_GamepadButton sb; B b; };
+  static const PadMap kPad[] = {
+    {SDL_GAMEPAD_BUTTON_EAST, B::A},          {SDL_GAMEPAD_BUTTON_SOUTH, B::B},
+    {SDL_GAMEPAD_BUTTON_NORTH, B::X},         {SDL_GAMEPAD_BUTTON_WEST, B::Y},
+    {SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, B::L}, {SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, B::R},
+    {SDL_GAMEPAD_BUTTON_START, B::Start},     {SDL_GAMEPAD_BUTTON_BACK, B::Select},
+    {SDL_GAMEPAD_BUTTON_DPAD_UP, B::Up},      {SDL_GAMEPAD_BUTTON_DPAD_DOWN, B::Down},
+    {SDL_GAMEPAD_BUTTON_DPAD_LEFT, B::Left},  {SDL_GAMEPAD_BUTTON_DPAD_RIGHT, B::Right},
+    {SDL_GAMEPAD_BUTTON_LEFT_STICK, B::L3},   {SDL_GAMEPAD_BUTTON_RIGHT_STICK, B::R3},
+  };
+  for (const auto& p : g.pads) {
+    if (!p.gp || n >= max) continue;
+    Device& pd_ = out[n++];
+    pd_.id = p.id;
+    pd_.type = DeviceType::Gamepad;
+    std::memcpy(pd_.name, p.name, sizeof pd_.name);
+    pd_.connected = SDL_GamepadConnected(p.gp);
+    uint16_t b = 0;
+    for (const PadMap& m : kPad)
+      if (SDL_GetGamepadButton(p.gp, m.sb)) b |= uint16_t(m.b);
+    if (SDL_GetGamepadAxis(p.gp, SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > 16000) b |= uint16_t(B::L);
+    if (SDL_GetGamepadAxis(p.gp, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > 16000) b |= uint16_t(B::R);
+    pd_.state.buttons = b;
+    pd_.state.lx = pd::pc::padAxis(p.gp, SDL_GAMEPAD_AXIS_LEFTX);
+    pd_.state.ly = pd::pc::padAxis(p.gp, SDL_GAMEPAD_AXIS_LEFTY);
+    pd_.state.rx = pd::pc::padAxis(p.gp, SDL_GAMEPAD_AXIS_RIGHTX);
+    pd_.state.ry = pd::pc::padAxis(p.gp, SDL_GAMEPAD_AXIS_RIGHTY);
+  }
+  return n;
 }
 
-void rumble(uint32_t, uint16_t) {}  // Tastatur: No-Op; SDL-Gamepads folgen in M4
+void rumble(uint32_t id, uint16_t ms) {  // Tastaturen: No-Op
+  for (const auto& p : g.pads)
+    if (p.gp && p.id == id) SDL_RumbleGamepad(p.gp, 0xC000, 0xC000, ms);
+}
 
 }  // namespace input
 

@@ -29,7 +29,7 @@ os::RunOptions direct(uint32_t ticks) {
 }  // namespace
 
 TEST_CASE("Registry") {
-  CHECK(os::gameCount() == 1);
+  CHECK(os::gameCount() == 2);
   const GameInfo* g = os::findGame("testgame");
   REQUIRE(g != nullptr);
   CHECK(g->meta.maxPlayers == 2);
@@ -155,10 +155,10 @@ TEST_CASE("Systemmenü: Weiter und Helligkeit werden gespeichert") {
   testhal::onPoll = [](int f) {
     uint16_t b = 0;
     if (f >= 10 && f < 75) b = START | SELECT;  // Menü auf
-    if (f == 80) b = DOWN;                      // BEENDEN
-    if (f == 82) b = DOWN;                      // HELL
-    if (f == 84) b = RIGHT;                     // +1 (Standard 6 -> 7)
-    if (f == 90) b = uint16_t(Button::B);       // schließen = weiter
+    // WEITER, BEENDEN, SPIELER, PROFILE, REKORDE, HELL
+    if (f == 80 || f == 82 || f == 84 || f == 86 || f == 88) b = DOWN;
+    if (f == 90) b = RIGHT;                     // +1 (Standard 6 -> 7)
+    if (f == 95) b = uint16_t(Button::B);       // schließen = weiter
     testhal::device.state.buttons = b;
   };
   CHECK(os::run(direct(200)) == 0);

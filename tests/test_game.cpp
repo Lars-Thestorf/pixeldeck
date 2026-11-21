@@ -26,6 +26,9 @@ public:
     testgame::stats.lastTick = ctx.tick();
     ++testgame::stats.ticks;
     ctx.gfx.pixel(0, 0, 0x1234);
+    if (ctx.input.player(1).connected()) testgame::stats.p2Seen = true;
+    if (int(ctx.tick()) == testgame::stats.submitAtTick)
+      ctx.scores.submit(testgame::stats.submitSlot, testgame::stats.submitValue);
   }
   void onShutdown(pd::Context& ctx) override {
     ++testgame::stats.shutdowns;
