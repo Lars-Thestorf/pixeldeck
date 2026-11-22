@@ -1,6 +1,6 @@
 # pixeldeck - Spezifikation
 
-Stand: 2026-11-22, Version 0.6 (Festlegungen aus M4 eingearbeitet: Slots, Lobby, Profile, Highscores, Tastaturlayouts, Gamepads; Version 0.5: Festlegungen und Messwerte aus M3; Version 0.4: M1 und M2; Version 0.2: Registry per CMake, WebPad-Protokoll im Core und Profilwahl beim Join im laufenden Spiel bestätigt)
+Stand: 2026-11-22, Version 0.7 (Festlegungen aus M6 eingearbeitet: WebPad mit Access Point, Captive Portal, Protokoll, Controller-Seite, PC-Server; M5 Audio steht noch aus; Version 0.6: Festlegungen aus M4: Slots, Lobby, Profile, Highscores, Tastaturlayouts, Gamepads; Version 0.5: Festlegungen und Messwerte aus M3; Version 0.4: M1 und M2; Version 0.2: Registry per CMake, WebPad-Protokoll im Core und Profilwahl beim Join im laufenden Spiel bestätigt)
 
 pixeldeck ist ein kleines "Betriebssystem" mit Spielen für eine selbstgebaute Spielekonsole (ESP32 + 64x32 RGB-LED-Matrix). Derselbe C++-Code läuft nativ auf dem ESP32 und als Simulator am PC. Dieses Dokument beschreibt alles oberhalb der Hardware-Ansteuerung; die HAL wird hier nur als Schnittstelle spezifiziert.
 
@@ -330,7 +330,7 @@ Umgesetzt (M4), `core/src/input_system.*`:
 - Kanten (`pressed`/`released`) werden pro Gerät gebildet, nicht pro Slot; ein Tausch erzeugt keine Phantom-Flanken.
 - Reservierung zählt in Ticks (`PD_SLOT_HOLD_MS` bei 60 Hz). Während der Reservierung ist der Slot für das Spiel `connected() == false`, Name und Farbe bleiben.
 - Overlays (12.3): "P2 GETRENNT", "P2 ZURUECK", bei Join im Spiel "P2 <NAME>".
-- Am ESP gibt es bis M6 nur das eingebaute Pad; Slots 1-3 sind dort erst mit dem WebPad nutzbar.
+- WebPads (M6) sind Geräte vom Typ `WebPad`, die der Core selbst erzeugt und hinter den HAL-Geräten in den Slot-Manager speist (`MAX_DEVICES` = 16). Beitritt wie ein Gamepad per A, Profil kommt vom Handy (7.1), keine Profilwahl auf der Matrix; im Spiel und außerhalb erscheint "P2 <NAME>".
 
 ### 6.4 Lobby
 
@@ -361,6 +361,7 @@ Umgesetzt (M4), `core/src/profiles.*`:
 - Ein Profil kann nur in einem Slot gleichzeitig sein. Ist das zuletzt genutzte Profil schon vergeben, spielt das Gerät als Gast.
 - Profilwahl nach dem Join (außerhalb eines Spiels): modaler Bildschirm "P2: WER BIST DU?", bedient vom beitretenden Gerät. Links/Rechts (oder Hoch/Runter) wählt zwischen Gast und freien Profilen, A bestätigt und merkt sich die Wahl für das Gerät, B (dort oder am Primärgerät) bricht den Join ab. Mehrere Joins werden nacheinander abgefragt. Ein neues Profil lässt sich dort nicht anlegen, nur im Systemmenü.
 - Das Primärgerät startet mit seinem zuletzt genutzten Profil, ohne Auswahl.
+- WebPad (M6): Das Handy schickt sein Profil mit HELLO und bei Änderung (PROFILE_SELECT); beim Beitritt übernimmt der Slot es, wenn kein anderer Slot es nutzt (sonst Gast). Profile lassen sich auf dem Handy anlegen (PROFILE_CREATE). Ändert jemand im Systemmenü das Profil eines WebPad-Slots, übernimmt das Handy es (PROFILE_SET). Die Konsole merkt sich für WebPads kein Profil pro Gerät; das macht der Browser.
 
 ### 7.2 Highscores
 
@@ -405,13 +406,13 @@ public:
 | ESP32 | NVS (Wear-Leveling durch IDF), Partition `nvs` 128 KB (M3), ein Blob pro Schlüssel |
 | PC | `~/.pixeldeck/` (Linux), `%APPDATA%\pixeldeck\` (Windows) |
 
-OS-Daten (Profile, Scores, Einstellungen) liegen in reservierten Namensräumen ohne `g_`-Präfix: Einstellungen in `os/settings`, Profile in `os/profiles`, Highscores in `s_<id>/top`. Namensräume und Schlüssel: nur `[a-z0-9_]`, max. 15 Zeichen. Am PC ist das Verzeichnis per `--data-dir` wählbar; geschrieben wird atomar (temporäre Datei, dann umbenennen).
+OS-Daten (Profile, Scores, Einstellungen) liegen in reservierten Namensräumen ohne `g_`-Präfix: Einstellungen in `os/settings` (Version 2 seit M6: zusätzlich WebPad an/aus, SSID-Suffix, WLAN-Passwort; Version 1 wird übernommen), Profile in `os/profiles`, Highscores in `s_<id>/top`. Namensräume und Schlüssel: nur `[a-z0-9_]`, max. 15 Zeichen. Am PC ist das Verzeichnis per `--data-dir` wählbar; geschrieben wird atomar (temporäre Datei, dann umbenennen).
 
 ---
 
 ## 9. Speicher
 
-- Statische **Arena** im `.bss`, Größe `PD_ARENA_SIZE` (Konfigurationswert, **Startwert 64 KB**, nach Messung auf der Hardware anpassen).
+- Statische **Arena** im `.bss`, Größe `PD_ARENA_SIZE` (Konfigurationswert, Startwert 64 KB, **seit M6 32 KB**: die Spiele brauchen max. 1,3 KB, das WLAN braucht den Heap).
 - Spielobjekt per Placement-new an den Anfang der Arena.
 - `ctx.alloc()` = Bump-Allocator auf dem Rest, nur in `init()`. Kein `free`.
 - Beim Beenden: Destruktor, Arena komplett verworfen. Keine Lecks und keine Fragmentierung zwischen Spielen.
@@ -424,9 +425,9 @@ Grobe RAM-Bilanz ESP32 **[Annahme, nicht gemessen]**:
 |---|---|
 | Nutzbares DRAM nach IDF-Start | 250-290 KB |
 | HUB75-DMA-Puffer | 20-30 KB |
-| WLAN + WebSocket (nur wenn aktiv) | 40-70 KB |
+| WLAN + WebSocket (nur wenn aktiv) | gemessen M6: 26 KB statisch, ca. 54-65 KB Heap |
 | OS, Framebuffer, Stacks, Puffer | 30-40 KB |
-| Arena | 64 KB |
+| Arena | 32 KB (bis M6: 64 KB) |
 
 ---
 
@@ -473,7 +474,7 @@ namespace display {
 }
 
 namespace input {
-  enum class DeviceType : uint8_t { Builtin, Keyboard, Gamepad };
+  enum class DeviceType : uint8_t { Builtin, Keyboard, Gamepad, WebPad };  // WebPad nur vom Core
   struct RawInput { uint16_t buttons; int8_t lx, ly, rx, ry; };  // kalibriert, mit Deadzone
   struct Device {
     uint32_t   id;                          // stabil über Neuverbindungen
@@ -532,15 +533,16 @@ namespace audio {                           // reserviert
   size_t write(const int16_t* samples, size_t n);  // darf blockieren; ESP vorerst No-Op
 }
 
-namespace net {                             // Transport für WebPad, Protokoll liegt im Core
-  bool startAccessPoint(const char* ssid, const char* pass);
-  void stop();
-  void serveStatic(const char* path, const uint8_t* gz, size_t len, const char* mime);
-  void enableCaptivePortal(bool on);
+namespace net {                             // Transport für WebPad, Protokoll liegt im Core (M6)
   using ClientId = uint32_t;
-  void setWebSocketHandlers(void (*onOpen)(ClientId),
-                            void (*onMessage)(ClientId, const uint8_t*, size_t),
-                            void (*onClose)(ClientId));
+  void serveStatic(const char* path, const uint8_t* gz, size_t len, const char* mime);
+  bool start(const char* ssid, const char* pass);  // ESP: AP + Captive Portal + HTTP/WS; PC: HTTP/WS
+  void stop();
+  struct Info { bool running, accessPoint; uint8_t stations; uint16_t port; char host[24]; };
+  Info info();
+  enum class EventType : uint8_t { Open, Message, Close };
+  struct Event { EventType type; uint8_t len; ClientId client; uint8_t data[32]; };
+  size_t poll(Event* out, size_t max);      // Ereignisse abholen, einmal pro Tick
   bool send(ClientId c, const uint8_t* data, size_t len);
 }
 
@@ -549,7 +551,7 @@ namespace net {                             // Transport für WebPad, Protokoll 
 
 Hinweise:
 - `input::poll` liefert nur Hardware-Geräte. WebPad-Geräte erzeugt der Core aus dem Protokoll und speist sie in denselben Slot-Manager. Die HAL stellt für das WebPad nur den Transport bereit (`net`), das Protokoll ist plattformunabhängig im Core.
-- `net`-Callbacks können aus einem anderen Task/Kern kommen. Der Core übernimmt die Daten in gesperrte Puffer.
+- `net` (M6): statt der ursprünglich geplanten Callbacks legt die Plattform Ereignisse (Verbindung auf, Nachricht, Verbindung zu) in eine gesperrte Warteschlange, die der Core einmal pro Tick mit `poll()` leert. So bleibt der Core single-threaded. Nachrichten über 32 Byte verwirft die Plattform. Captive Portal ist Teil von `start()` statt eigener Funktion.
 - UART-Protokoll zum xmega: Abschnitt 1.2. Es bestimmt nur die ESP-Implementierung von `input` und `power`.
 - ESP32: `input::poll` liefert ein Gerät `Builtin` "KONSOLE", verbunden, solange Pakete kommen.
   `power::read().shutdownPending` = Power-Bit, aber erst nachdem die Taste nach dem Einschalten
@@ -565,7 +567,7 @@ Launcher und Systemmenü sind intern selbst Spiele über dieselbe API (Test der 
 
 - Karussell: ein Spiel pro Ansicht. Icon 16x16 links, rechts Name (5x7), darunter Rekord + Profilname (3x5) und Spielerzahl ("1-4P").
 - Links/Rechts (D-Pad oder Stick) blättert, A startet, Start öffnet das Systemmenü.
-- Statuszeile (3x5): Akkustand, WebPad an/aus, belegte Slots als farbige Punkte. Umgesetzt (M2): Position "n/m" links, Slot-Punkte rechts; WebPad ab M6. Akku (M3): Batteriesymbol links der Slot-Punkte, grün, unter 10 % rot, beim Laden gelb; nur wenn `available`. Slot-Punkte (M4) in Profilfarbe, reservierte Slots blinken. Rekord (M4): Score in Gelb, dahinter der Profilname, wenn er noch in die Zeile passt; ohne Eintrag "REK ---".
+- Statuszeile (3x5): Akkustand, WebPad an/aus, belegte Slots als farbige Punkte. Umgesetzt (M2): Position "n/m" links, Slot-Punkte rechts; WebPad ab M6. Akku (M3): Batteriesymbol links der Slot-Punkte, grün, unter 10 % rot, beim Laden gelb; nur wenn `available`. Slot-Punkte (M4) in Profilfarbe, reservierte Slots blinken. WebPad (M6): "W" links vom Akku, blau wenn an, cyan sobald ein Handy verbunden ist. Rekord (M4): Score in Gelb, dahinter der Profilname, wenn er noch in die Zeile passt; ohne Eintrag "REK ---".
 - Der Launcher merkt sich das zuletzt gestartete Spiel (OS-Einstellungen) und wählt es beim nächsten Mal vor.
 - Namen bis 38 px Breite (6 Zeichen) in 5x7, längere in 3x5.
 
@@ -580,11 +582,13 @@ Umgesetzt (M4): Hauptliste im Spiel WEITER, BEENDEN, SPIELER, PROFILE, REKORDE, 
 - **PROFILE:** Liste mit "+ NEU" am Ende, Anzahl "n/16". A öffnet den Editor: Hoch/Runter Zeichen, Links/Rechts Cursor, X Farbe, A speichern, B abbrechen, Y löschen mit Rückfrage "LOESCHEN? A JA B NEIN". Gelöschte Profile werden in Slots und Gerätezuordnung zu Gast.
 - **REKORDE:** Links/Rechts Spiel (nur mit `scoreMode`), vorgewählt das zuletzt gestartete, vier Einträge sichtbar, Hoch/Runter blättert, X setzt nach Rückfrage zurück.
 
+Umgesetzt (M6): Menüpunkt **WEBPAD** zwischen REKORDE und HELL (grüner Punkt, wenn an). Die Seite zeigt "AN n" (verbundene Handys) und am ESP SSID, Passwort und 192.168.77.1, am PC IP und Port. A schaltet ein/aus (gespeichert, gilt auch nach Neustart), X erzeugt ein neues WLAN-Passwort (Access Point startet neu), B zurück. Scheitert der Start, steht dort "NETZ FEHLER".
+
 Gesamtumfang:
 - Nur im Spiel: **Weiter**, **Spiel beenden**
 - **Spieler:** Slots mit Controller-Icon, tauschen, Profil wechseln
 - **Profile:** anlegen, umbenennen, löschen
-- **WebPad:** an/aus, SSID + Passwort, QR-Code **[Offen]** (Version 1-2 passt auf 32 Pixel Höhe, Lesbarkeit auf LEDs testen; Text als Fallback)
+- **WebPad:** an/aus, SSID + Passwort (umgesetzt M6, als Text), QR-Code **[Offen]** (für die WLAN-Zugangsdaten braucht es Version 3, 29x29 Module; passt mit 1 px pro Modul knapp auf 32 Pixel Höhe, Lesbarkeit auf LEDs testen)
 - **Helligkeit**, **Lautstärke**
 - **Highscores:** ansehen, pro Spiel zurücksetzen
 - **Info:** Firmware-Version, freier Heap, Arena-Höchststand, Tick-Dauer (Durchschnitt/Maximum), Akku in mV
@@ -609,31 +613,65 @@ Optional zuschaltbar im Systemmenü (RAM und Akku). Läuft auf ESP und PC.
 - Querformat, Nintendo-Layout: zwei virtuelle Sticks, D-Pad, ABXY, L/R, Start/Select. L3/R3 per Doppeltipp auf den Stick. Multitouch.
 - Profilauswahl und -anlage auf dem Handy; Token und Profil im `localStorage`.
 - Rumble über die Vibration-API des Browsers. **[Annahme]** funktioniert auf Android, nicht auf iOS Safari; nicht aktuell geprüft.
-- **[Offen]** Passwortschema des AP (fest, pro Gerät generiert, oder offen).
+- Passwortschema **[Annahme, M6]**: WPA2, pro Gerät einmal zufällig erzeugt (8 Ziffern, leicht am Handy einzutippen) und in `os/settings` gespeichert, SSID `PIXELDECK-XXXX` mit zufälligem 4-stelligem Hex-Suffix. Neues Passwort im Systemmenü. Wer das WLAN offen will, kann `start()` ein leeres Passwort geben.
 
-### 13.2 Protokoll (Entwurf)
+Umgesetzt (M6):
+- ESP32 (`platform/pixeldeck/esp32/main/hal_net.cpp`): eigenes Netz 192.168.77.0/24 **[Annahme]** statt des ESP-Standards 192.168.4.0/24 (kollidierte mit dem Büronetz 192.168.0.0/21 des Testrechners). Access Point auf Kanal 6 **[Annahme]**, max. 4 WLAN-Geräte **[Annahme]**, kein Stromsparmodus. DHCP bietet die eigene IP als DNS und die Captive-Portal-URL (RFC 8910, Option 114) an. Ein kleiner DNS-Task beantwortet jede A-Anfrage mit 192.168.77.1 (AAAA leer). `esp_http_server` liefert die Seite unter "/" (gzip), WebSocket unter "/ws", alle anderen URLs (z. B. `generate_204`, `hotspot-detect.html`) per 302 auf die Seite. Gesendet wird per `httpd_queue_work` im HTTP-Task, der Frame wird selbst gebaut und in einem Stück geschrieben (`httpd_socket_send`), WebSockets mit `TCP_NODELAY`; `httpd_ws_send_frame_async` schreibt Kopf und Nutzdaten getrennt, mit Nagle wartete der zweite Teil auf die Bestätigung. Sockets: `CONFIG_LWIP_MAX_SOCKETS` 16, davon httpd 12 (+3 intern) und 1 DNS; normale HTTP-Antworten schließen die Verbindung sofort (`Connection: close`). Mit den IDF-Vorgaben (10 Sockets, Keep-Alive) war die Tabelle schon mit zwei Handys voll (`accept`: ENFILE), weitere Handys kamen nicht mehr durch. `stop()` baut WLAN komplett ab (`esp_wifi_deinit`).
+- PC (`platform/pc/net_pc.cpp`): HTTP/WebSocket-Server im lokalen Netz, Port 8080 (`--webpad-port`), eigener Thread ohne Heap-Allokationen (sonst meldet der Heap-Hook Fehlalarme). Gleiche 302-Umleitung wie am ESP. Kein Access Point. Windows: nicht umgesetzt.
+- Seite `web/webpad.html` (eine Datei, kein Framework), beim Build von `tools/pd_embed.py` von Einrückungen befreit, gzip-komprimiert und als Array in `pd_core` eingebettet (ca. 5 KB). Aufbau quer: L/R oben, dazwischen − (Select), Status, + (Start), darunter PROFIL; links Stick oben und D-Pad unten, rechts ABXY oben und Stick unten. Über Tasten gleiten wechselt die Taste, das D-Pad erkennt 8 Richtungen, Doppeltipp auf einen Stick hält L3/R3. Vollbild und Querformat-Sperre bei jedem Loslassen eines Fingers, solange kein Vollbild aktiv ist (bei Touch gilt erst `pointerup`/`click` als Nutzeraktion, nicht `pointerdown`). Das Layout rechnet mit der sichtbaren Höhe (`--vh` aus `innerHeight`), damit bei eingeblendeter Adressleiste nichts verdeckt wird. iPhone hat keine Fullscreen-API: Hinweis "Teilen → Zum Home-Bildschirm" in der Profilauswahl. Hochkant erscheint "Bitte quer halten".
+- Erster Aufruf ohne gespeichertes Profil: Auswahl "WER SPIELT?" (Gast, Profile der Konsole, "+ NEU" mit Name und Farbe). Token (16 Byte, hex) und Profil-ID liegen im `localStorage`. Statuszeile auf dem Handy: "P2 NAME" in Profilfarbe, sonst "A DRÜCKEN ZUM MITSPIELEN".
+- Trennung und Rückkehr wie bei anderen Geräten (6.3); dasselbe Handy in einem zweiten Tab übernimmt die Verbindung, der alte Tab zeigt "Anderswo verbunden".
+- Kurze Drücke zwischen zwei Ticks hält der Core für einen Tick fest, damit sie nicht verloren gehen.
 
-WebSocket, **binär, zustandsbasiert**, Little Endian.
+Gemessen M6 (ESP32): Heap frei vor WLAN 107 KB, mit Access Point 42 KB (größter Block 40 KB), nach dem Ausschalten 96 KB; ab dem zweiten Ein/Aus kein weiterer Verlust. Statisches DRAM durch den WLAN-Stack +26 KB (122 KB von 177 KB). 
+
+Messung mit zweiter WLAN-Karte am PC (rtw88-USB, ohne Default-Route), simulierte Handys mit dem Verkehr der Seite (`load.mjs`-Skript, nicht im Repo), nach TCP_NODELAY und kleineren WLAN-/TCP-Puffern (`CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM` 6, dynamische RX/TX 16, kein AMPDU-TX, `TCP_SND_BUF`/`TCP_WND` 2880):
+| | 1 Client | 3 Clients (eine Karte) |
+|---|---|---|
+| Antwortzeit PING/PONG Median / p95 | 40 / 106 ms (vorher 82 / 194 ms) | 100-180 / 440-510 ms |
+| größte Empfangslücke im Betrieb | 116-132 ms | 114-137 ms |
+| Heap frei, Minimum | 30 KB | 11 KB |
+| CPU Kern 0 / Kern 1 | 10-13 % / 30 % | 17-30 % / 32-37 % |
+
+ICMP-Ping zur Konsole über dieselbe Karte schwankt schon 5-200 ms; die Antwortzeiten mit 3 Clients sind deshalb eher eine Grenze der Testkarte. Heap mit Access Point ohne Clients: 43 KB. Die Spiele nutzen höchstens 1,3 KB der 64-KB-Arena (snake). Nach Halbierung der Arena auf 32 KB: Heap mit Access Point 76 KB, Minimum mit 3 Clients 54 KB (vorher 11 KB); statisches DRAM 91 KB von 177 KB.
+
+### 13.2 Protokoll (Version 1, M6)
+
+WebSocket unter `/ws`, **binär, zustandsbasiert**, Little Endian. Umsetzung: `core/src/webpad.*`.
 
 Client → Konsole:
 
 | Typ | Name | Inhalt |
 |---|---|---|
-| `0x01` | HELLO | Token (16 Byte), Profil-ID (`0xFF` = Gast) |
-| `0x02` | STATE | Buttons `u16`, lx, ly, rx, ry (`i8`) |
+| `0x01` | HELLO | Version `u8` (= 1), Token (16 Byte), Profil-ID (`0xFF` = Gast) |
+| `0x02` | STATE | Buttons `u16` (Bits wie `pd::Button`), lx, ly, rx, ry (`i8`, y > 0 unten) |
 | `0x03` | PROFILE_CREATE | Name (8 Byte, nullgefüllt), Farbindex `u8` |
+| `0x04` | PROFILE_SELECT | Profil-ID |
+| `0x05` | PING | Folgenummer `u16`, alle 500 ms |
 
 Konsole → Client:
 
 | Typ | Name | Inhalt |
 |---|---|---|
-| `0x81` | WELCOME | Slot (`0xFF` = noch nicht gejoint), Profilliste |
-| `0x82` | SLOT | neuer Slot nach Join/Tausch |
+| `0x81` | WELCOME | Version `u8`, Anzahl Farben `u8`, Palette als RGB565 `u16` je Farbe |
+| `0x82` | SLOT | Slot (`0xFF` = nicht beigetreten), Profil-ID (im Slot bzw. gewünscht) |
 | `0x83` | RUMBLE | Dauer ms `u16` |
+| `0x84` | PROFILES | Anzahl `u8`, je Profil: ID, Farbindex, Name (8 Byte) |
+| `0x85` | PROFILE_SET | Profil-ID, die das Handy übernehmen soll (Systemmenü, neu angelegt) |
+| `0x86` | RESYNC | bitte HELLO senden (Nachricht ohne vorheriges HELLO) |
+| `0x88` | PONG | Folgenummer aus PING zurück |
+| `0x87` | REJECT | Grund: 1 Konsole voll, 2 falsche Version, 3 anderswo verbunden, 4 Profil nicht angelegt |
+
+- Nach HELLO schickt die Konsole WELCOME, PROFILES und SLOT; PROFILES und SLOT danach bei jeder Änderung.
+- Geräte-ID = FNV-1a über das Token, Bits 31/30 = 01 (kollidiert nicht mit Tastaturen und SDL-Gamepads).
+- Höchstens 8 Verbindungen gleichzeitig im Core; ist die Tabelle voll, wird eine Verbindung verdrängt, die seit über 1 s schweigt, sonst REJECT 1.
 
 - STATE wird bei jeder Änderung und zusätzlich alle **100 ms** als Heartbeat gesendet. Kein Ereignisstrom, damit keine "hängenden" Tasten.
 - Kein Heartbeat für **1 s** = getrennt (Slot bleibt reserviert, siehe 6.3).
-- Latenz **[Annahme]** 10-50 ms; für Party-Spiele ausreichend, für präzise Geschicklichkeitsspiele grenzwertig.
+- Latenz **[Annahme]** 10-50 ms; für Party-Spiele ausreichend, für präzise Geschicklichkeitsspiele grenzwertig. Nicht gemessen.
+- Sticks schickt die Seite gebündelt alle 16 ms, Tasten sofort.
+- PING/PONG (ergänzt nach dem ersten Handy-Test): Das Handy zeigt die Antwortzeit unter PROFIL an und "HAKT x s" in Rot, wenn 1,5 s keine Antwort kam. Vorher merkte das Handy Aussetzer gar nicht, nur die Konsole.
+- Diagnose (vorläufig): Core loggt Lücken über 250 ms, Timeouts und ersetzte Verbindungen; der ESP loggt je WebSocket Lücken direkt beim Empfang, Schließen, langsames Senden und alle 5 s Frames, größte Lücke, Queue-Füllstand, RSSI und Heap-Minimum.
 
 ---
 
@@ -706,6 +744,7 @@ Gnadenfrist von 1,5 s (Abschnitt 1.2), damit ist Punkt 4 erledigt.
 - **Zweites Tastaturlayout** als eigener Spieler (Pfeile vs. WASD), dazu SDL-Gamepads und Rumble. Umgesetzt (M4): Layout 1 liegt dafür auf der rechten Tastaturhälfte (Tabelle unten), Layout 2 links. Beide sind Geräte vom Typ `Keyboard` (ID 1 und 2); Layout 2 tritt wie ein Gamepad per A bei.
 - **SDL-Gamepads (M4):** bis 6, Hotplug. Belegung nach Position wie am Nintendo-Pad **[Annahme]**: rechte Aktionstaste = A, untere = B, obere = X, linke = Y; Schultertasten und Trigger (> 50 %) = L/R, Back = Select. Sticks mit Totzone **[Annahme]** ca. 25 %. Geräte-ID aus GUID und Seriennummer (bei gleichen Pads ohne Seriennummer zusätzlich die Reihenfolge), damit derselbe Controller seinen Slot zurückbekommt. Rumble über `SDL_RumbleGamepad`. Im Headless- und Fuzz-Modus gibt es nur Tastatur 1.
 - **Headless-Modus:** `--headless --ticks N --out frame.png`, für Smoke-Tests in CI. Ohne Fenster läuft eine virtuelle Uhr (so schnell wie möglich); die Tick-Messung ist dort ohne Aussage. `--fuzz-input <seed>` erzeugt zufällige Eingaben auf Slot 0. CTest startet jedes Spiel und den Launcher so; ein Test scheitert bei `[ERROR]` oder einer Heap-Warnung.
+- **WebPad (M6):** einschalten im Systemmenü oder mit `--webpad` (nur dieser Lauf). Das Handy öffnet `http://<PC-IP>:8080/` im selben Netz; Port per `--webpad-port`. `--webpad` funktioniert auch headless, dann mit echter Uhr statt virtueller (Ende-zu-Ende-Tests mit einem WebSocket-Client).
 - **Heap-Hook:** meldet `operator new` während Spielcode läuft. Aufrufe des Spiels in OS-Dienste (Storage, Rumble) sind ausgenommen, weil dort allokiert werden darf.
 - Hänger: Warnung im Log nach 5 s. Absturz: normaler Prozess-Crash mit Debugger.
 - Nicht vorgesehen: Hot-Reload von Spielcode.
@@ -735,6 +774,8 @@ Esc beendet den Simulator, F2 schaltet LED-Optik und Pixel um. Tasten gelten nac
 - **PC:** CMake, SDL3. Linux ist Pflicht, Windows optional.
 - **Assets:** Python 3 + Pillow (Python ist durch ESP-IDF ohnehin vorhanden).
 - **Tests:** doctest (MIT-Lizenz, header-only).
+- **WebPad-Seite:** `tools/pd_embed.py` (Python 3, nur Standardbibliothek) bettet `web/webpad.html` gzip-komprimiert in `pd_core` ein; Ziel < 20 KB, der Build warnt darüber.
+- **ESP32 und WLAN (M6):** `CONFIG_HTTPD_WS_SUPPORT=y`. Die main-Komponente wird mit `WHOLE_ARCHIVE` gelinkt, weil auf `hal_net.cpp` nur `pd_core` verweist und der Linker die Datei sonst verwirft.
 
 ### 16.2 Verzeichnisse
 
@@ -775,7 +816,7 @@ pixeldeck/
 
 | Name | Startwert |
 |---|---|
-| `PD_ARENA_SIZE` | 64 KB |
+| `PD_ARENA_SIZE` | 32 KB (M6, vorher 64 KB) |
 | `PD_SAVE_MAX` | 4 KB |
 | `PD_MAIN_STACK_SIZE` | 16 KB |
 | `PD_TICK_HZ` | 60 |
@@ -795,7 +836,7 @@ pixeldeck/
 | **M3 ESP32** | IDF-Projekt, HAL für Display/Time/Storage/Log/Random, Input und Power über den xmega-Link, Watchdog und Crash-Meldung, Dev-Kanal |
 | **M4 Mehrspieler + Profile** | Slot-Manager, Join, Lobby, Profile, Highscores, SDL-Gamepads, zweites Tastaturlayout |
 | **M5 Audio** | Synth, Sfx-API, SDL-Ausgabe; ESP-Ausgabe erst mit Hardware |
-| **M6 WebPad** | AP, Captive Portal, WebSocket-Protokoll, Controller-Seite, Rumble, auch am PC |
+| **M6 WebPad** | AP, Captive Portal, WebSocket-Protokoll, Controller-Seite, Rumble, auch am PC (umgesetzt vor M5) |
 
 Startspiele (eigene Designs, keine Nachbildungen bestehender Spiele):
 - **Snake** - 1P, Highscore
@@ -808,16 +849,19 @@ Startspiele (eigene Designs, keine Nachbildungen bestehender Spiele):
 ## 18. Offene Punkte
 
 1. ~~UART-Protokoll zum zweiten µC~~ dokumentiert in 1.2, Paketrate und Gnadenfrist in M3 umgesetzt. Offen bleibt die Stick-Kalibrierung
-2. RAM gemessen (14.1): genug Reserve; `PD_ARENA_SIZE` (64 KB) und `PD_MAIN_STACK_SIZE` (16 KB) bleiben vorerst, Stack könnte auf 8 KB sinken. NVS-Partition 128 KB
+2. RAM gemessen (14.1): genug Reserve; `PD_ARENA_SIZE` in M6 auf 32 KB halbiert (16), `PD_MAIN_STACK_SIZE` (16 KB) bleibt vorerst, Stack könnte auf 8 KB sinken. NVS-Partition 128 KB
 3. Tick-Dauer gemessen (14.1): unter 0,5 ms. Die PC-Warnschwelle von 1666 µs bleibt
 4. Audio-Hardware (I2S-DAC oder interner DAC)
 5. ~~Fonts erstellen bzw. lizenzkonforme Quelle wählen~~ erledigt in M1 (selbst gepixelt)
 6. QR-Code-Lesbarkeit auf der Matrix testen
-7. WLAN-Passwortschema für das WebPad
+7. ~~WLAN-Passwortschema für das WebPad~~ **[Annahme]** in M6: WPA2, 8 zufällige Ziffern pro Gerät (13.1); bestätigen
 8. GIF-Encoder für den Simulator auswählen (Lizenz)
 9. Registrierungs-Syntax, falls Windows/MSVC wichtig wird (Designated Initializers)
 10. ~~Lizenz von `ESP32-HUB75-MatrixPanel-DMA` bestätigen~~ MIT, geprüft in M3
 11. ~~Sichtprüfung am Gerät~~ in M3 bestätigt (Bild wie am PC, Gamma 2,2 passt); Tastenzuordnung und Stick-Richtungen ebenfalls
 12. Profil anlegen direkt in der Profilwahl beim Join (bisher nur im Systemmenü)
 13. Gamepad-Belegung nach Position (Nintendo) am echten Controller prüfen; Xbox-Nutzer erwarten "A" unten
-14. Am ESP sind Slots 1-3 bis zum WebPad (M6) nicht erreichbar
+14. ~~Am ESP sind Slots 1-3 bis zum WebPad (M6) nicht erreichbar~~ mit dem WebPad erreichbar
+15. WebPad mit echten Handys prüfen (M6 nur mit WebSocket-Client am PC und AP-Sichtbarkeit am Gerät getestet): Captive Portal auf Android und iOS (öffnet sich die Seite, bleiben `localStorage` und WebSocket im Portal-Browser erhalten?), Vibration, Multitouch, Latenz, Heap mit 4 Handys. Test mit zwei Handys (M6, nach dem Socket-Fix): beide gleichzeitig verbunden und beigetreten, Captive Portal öffnete sich auf iOS (`hotspot-detect.html`) und Android (`generate_204`). Tokens bleiben pro Browser erhalten, aber Portal-Browser und normaler Browser desselben Handys haben getrennte Speicher, also zwei Geräte-IDs und getrennte Profilwahl. Aussetzer von 1-2 s mit zwei Handys: ein Teil kam von einem zweiten, im Hintergrund gedrosselten Browser desselben Handys (Portal-Fenster, 1 Nachricht/s), dazu Lücken von 300-600 ms bei knappem Heap (4,9 KB). Nach Socket-Fix, TCP_NODELAY und Puffer-Tuning im Test mit zwei Handys keine Aussetzer mehr bemerkt; Diagnose bleibt vorerst drin. iOS: das Captive-Portal-Fenster dreht nicht ins Querformat, in Safari geht es; die Seite zeigt hochkant einen Hinweis dazu
+16. RAM mit WLAN knapp: mit zwei echten Handys fiel der Heap vor dem Puffer-Tuning auf 4,9 KB, mit 3 simulierten danach auf 11 KB. Umgesetzt: `PD_ARENA_SIZE` von 64 auf 32 KB (Spiele brauchen bisher max. 1,3 KB)
+17. M5 Audio steht noch aus (M6 wurde vorgezogen); `Audio::play` ist weiter ein No-Op

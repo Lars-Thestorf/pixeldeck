@@ -4,7 +4,7 @@
 
 namespace pd::hal::input {
 
-enum class DeviceType : uint8_t { Builtin, Keyboard, Gamepad };
+enum class DeviceType : uint8_t { Builtin, Keyboard, Gamepad, WebPad };  // WebPad: nur vom Core erzeugt
 
 struct RawInput {
   uint16_t buttons;          // Bitmaske wie pd::Button

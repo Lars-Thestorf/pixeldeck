@@ -22,6 +22,18 @@ Tastatur 1 (Spieler 1, rechte Hälfte): Pfeile, `;` `.` `O` `K` = A B X Y, `I`/`
 Tastatur 2 (linke Hälfte): WASD, `H` `B` `T` `F` = A B X Y, `Q`/`E` = L/R, `2`/`1` = Start/Select.
 Tastatur 2 und SDL-Gamepads treten mit A bei; Profile, Spieler und Rekorde im Systemmenü.
 
+## WebPad (Handy als Controller)
+
+Systemmenü > WEBPAD > A schaltet es ein (bleibt gespeichert).
+
+- **Konsole:** Das Handy verbindet sich mit dem WLAN `PIXELDECK-XXXX` (Passwort steht auf der
+  WEBPAD-Seite); die Controller-Seite öffnet sich als Captive Portal, sonst `http://192.168.77.1/`.
+- **PC:** `./build/pixeldeck --webpad` (oder im Menü einschalten), am Handy im selben Netz
+  `http://<PC-IP>:8080/` öffnen. Port per `--webpad-port`.
+
+Am Handy Profil wählen oder anlegen, dann A drücken zum Mitspielen. Quelle der Seite:
+`web/webpad.html`, eingebettet beim Build (`tools/pd_embed.py`).
+
 ## ESP32 (Konsole)
 
 Voraussetzungen: ESP-IDF **v5.5** (`IDF_PATH`, `. $IDF_PATH/export.sh`), System-Python 3 mit

@@ -95,8 +95,29 @@ void Runtime::saveProfiles() {
 void Runtime::setSlotProfile(int slot, uint8_t profileId) {
   if (slot < 0 || slot >= InputSystem::SLOTS || !inputSys_.slot(slot).used) return;
   inputSys_.setSlotProfile(slot, profileId);
-  profiles_.remember(inputSys_.slot(slot).deviceId, profileId);
+  const uint32_t dev = inputSys_.slot(slot).deviceId;
+  if (inputSys_.slot(slot).type == hal::input::DeviceType::WebPad) {
+    webpad_.profileSetByConsole(dev, profileId);  // das Handy merkt sich sein Profil selbst
+    return;
+  }
+  profiles_.remember(dev, profileId);
   saveProfiles();
+}
+
+void Runtime::setWebPad(bool on) {
+  if (on) webpad_.start();
+  else webpad_.stop();
+  settings_.webpadOn = webpad_.running() ? 1 : 0;
+  saveSettings(settings_);
+}
+
+void Runtime::newWebPadPassword() {
+  settings_.apPass[0] = 0;
+  webpad_.ensureCredentials();
+  if (webpad_.running()) {  // neues Passwort gilt erst nach Neustart des Access Points
+    webpad_.stop();
+    webpad_.start();
+  }
 }
 
 void Runtime::deleteProfile(uint8_t id) {
@@ -299,7 +320,12 @@ void Runtime::handleSlotEvents() {
       const InputSystem::Slot& sl = inputSys_.slot(s);
       if (joined & bit) {
         logf(LogLevel::Info, "P%d: %s beigetreten", s + 1, inputSys_.deviceName(sl.deviceId));
-        if (s != prim) {
+        if (sl.type == hal::input::DeviceType::WebPad) {
+          // Profil kommt vom Handy (SPEC 7.1), keine Auswahl auf der Matrix
+          const uint8_t want = webpad_.requestedProfile(sl.deviceId);
+          if (!inputSys_.profileInUse(want, s)) inputSys_.setSlotProfile(s, want);
+          showOverlay(profiles_.color(sl.profileId), "P%d %s", s, profiles_.name(sl.profileId));
+        } else if (s != prim) {
           // im Spiel ohne Auswahl mit dem letzten Profil des Geräts, sonst Profilwahl
           if (game_) showOverlay(profiles_.color(sl.profileId), "P%d %s", s, profiles_.name(sl.profileId));
           else pickQueue_ |= bit;
@@ -484,6 +510,8 @@ int Runtime::run(const RunOptions& opts) {
   pickSlot_ = -1;
   overlayTicks_ = 0;
   setBrightnessLevel(settings_.brightnessLevel);
+  webpad_.reset();
+  if (settings_.webpadOn || opts.webpad) webpad_.start();  // scheitert es, bleibt die Einstellung
   shuttingDown_ = false;
   noticeTicks_ = 0;
   hal::app::setActivity(nullptr);
@@ -510,9 +538,12 @@ int Runtime::run(const RunOptions& opts) {
     if (opts.maxTicks && ticks >= opts.maxTicks) break;
 
     const bool gameView = game_ && !menuOpen_;
+    webpad_.update(ticks);
+    const size_t nWeb = webpad_.devices(webpadDevs_, WebPad::MAX_CLIENTS);
     inputSys_.update(input_, osInput_, gameView ? info_->meta.maxPlayers : InputSystem::SLOTS,
-                     gameView ? info_->meta.stickAsDpad : true, !shuttingDown_);
+                     gameView ? info_->meta.stickAsDpad : true, !shuttingDown_, webpadDevs_, nWeb);
     handleSlotEvents();
+    webpad_.sync();
     if (hal::app::quitRequested()) break;
     hal::app::heartbeat();
     power_ = hal::power::read();
@@ -556,6 +587,7 @@ int Runtime::run(const RunOptions& opts) {
     menuOpen_ = false;
     endGame();
   }
+  webpad_.stop();
   saveSettings(settings_);
   return 0;
 }

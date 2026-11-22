@@ -5,6 +5,7 @@
 #include <initializer_list>
 
 #include "pd/context.h"
+#include "pd/hal/net.h"
 #include "pd/os/runtime.h"
 #include "runtime_impl.h"
 #include "score_table.h"
@@ -25,6 +26,7 @@ const char* deviceTag(hal::input::DeviceType t) {
     case hal::input::DeviceType::Builtin: return "KON";
     case hal::input::DeviceType::Keyboard: return "TAS";
     case hal::input::DeviceType::Gamepad: return "PAD";
+    case hal::input::DeviceType::WebPad: return "WEB";
   }
   return "?";
 }
@@ -81,7 +83,9 @@ void Launcher::tick(Context& ctx) {
 
   if (in.pressed(Button::Start)) rt_.requestMenu(true);
 
-  // Statuszeile: Akku, belegte Slots als farbige Punkte (WebPad folgt mit M6)
+  // Statuszeile: WebPad, Akku, belegte Slots als farbige Punkte
+  if (rt_.webpad().running())
+    g.text(39, 0, "W", rt_.webpad().clientCount() > 0 ? rgb(0, 220, 255) : rgb(40, 80, 200));
   const hal::power::PowerState& pw = rt_.power();
   if (pw.available) {
     // Batteriesymbol 7x3 + Pol, Füllung 0-5 px
@@ -188,6 +192,7 @@ void SystemMenu::enter(bool inGame) {
   items_[count_++] = Item::Players;
   items_[count_++] = Item::Profiles;
   items_[count_++] = Item::Scores;
+  items_[count_++] = Item::WebPad;
   items_[count_++] = Item::Brightness;
   if (!inGame) items_[count_++] = Item::Back;
   sel_ = 0;
@@ -207,6 +212,7 @@ void SystemMenu::tick(Context& ctx) {
     case Page::Profiles: tickProfiles(ctx); break;
     case Page::Edit: tickEdit(ctx); break;
     case Page::Scores: tickScores(ctx); break;
+    case Page::WebPad: tickWebPad(ctx); break;
   }
 }
 
@@ -231,6 +237,7 @@ void SystemMenu::tickMain(Context& ctx) {
       case Item::Quit: rt_.requestEndGame(); break;
       case Item::Players: page_ = Page::Players; plSel_ = 0; plSwap_ = -1; break;
       case Item::Profiles: page_ = Page::Profiles; prSel_ = 0; break;
+      case Item::WebPad: page_ = Page::WebPad; break;
       case Item::Scores:
         page_ = Page::Scores;
         scTop_ = 0;
@@ -267,6 +274,10 @@ void SystemMenu::tickMain(Context& ctx) {
       case Item::Players: g.text(14, y, "SPIELER", c, Font::Large); break;
       case Item::Profiles: g.text(14, y, "PROFILE", c, Font::Large); break;
       case Item::Scores: g.text(14, y, "REKORDE", c, Font::Large); break;
+      case Item::WebPad:
+        g.text(14, y, "WEBPAD", c, Font::Large);
+        if (rt_.webpad().running()) g.fillRect(52, y + 2, 3, 3, rgb(60, 200, 60));
+        break;
       case Item::Brightness: {
         g.text(14, y, "HELL", c, Font::Large);
         const int lvl = rt_.settings().brightnessLevel;
@@ -523,6 +534,45 @@ void SystemMenu::tickScores(Context& ctx) {
     g.text(10, y, e.name, rt_.profiles().find(e.profileId) ? rt_.profiles().color(e.profileId) : TXT);
     std::snprintf(buf, sizeof buf, "%d", int(e.score));
     g.text(Gfx::W - g.textWidth(buf), y, buf, TXT);
+  }
+}
+
+// WebPad (SPEC 13): A schaltet ein/aus, X erzeugt ein neues WLAN-Passwort, B zurück.
+void SystemMenu::tickWebPad(Context& ctx) {
+  Gfx& g = ctx.gfx;
+  Input& in = ctx.input;
+  WebPad& wp = rt_.webpad();
+  if (in.pressed(Button::B)) { page_ = Page::Main; return; }
+  if (in.pressed(Button::A)) rt_.setWebPad(!wp.running());
+  const hal::net::Info info = wp.running() ? hal::net::info() : hal::net::Info{};
+  if (in.pressed(Button::X) && wp.running() && info.accessPoint) rt_.newWebPadPassword();
+
+  g.fillRect(0, 0, Gfx::W, Gfx::H, BG);
+  g.text(0, 0, "WEBPAD", TXT);
+  char buf[24];
+  if (!wp.running()) {
+    const bool failed = rt_.settings().webpadOn;  // eingeschaltet, aber Netz nicht gestartet
+    g.text(Gfx::W - g.textWidth("AUS"), 0, "AUS", failed ? rgb(255, 60, 40) : DIM);
+    center(g, 9, failed ? "NETZ FEHLER" : "HANDY ALS PAD", failed ? rgb(255, 60, 40) : DIM);
+    center(g, 19, "A EINSCHALTEN", (ctx.tick() / 30) % 2 ? SEL : TXT);
+    return;
+  }
+  std::snprintf(buf, sizeof buf, "AN %d", wp.clientCount());
+  g.text(Gfx::W - g.textWidth(buf), 0, buf, rgb(60, 200, 60));
+  const Settings& st = rt_.settings();
+  if (info.accessPoint) {
+    std::snprintf(buf, sizeof buf, "PIXELDECK-%s", st.apSuffix);
+    g.text(0, 7, buf, color::WHITE);
+    std::snprintf(buf, sizeof buf, "PW %s", st.apPass);
+    g.text(0, 13, buf, color::WHITE);
+    g.text(0, 19, info.host, TXT);
+    g.text(0, 26, "A AUS X NEUES PW", DIM);
+  } else {
+    g.text(0, 7, "IM NETZ DES PC", DIM);
+    g.text(0, 13, info.host, color::WHITE);
+    std::snprintf(buf, sizeof buf, "PORT %u", unsigned(info.port));
+    g.text(0, 19, buf, color::WHITE);
+    g.text(0, 26, "A AUS", DIM);
   }
 }
 

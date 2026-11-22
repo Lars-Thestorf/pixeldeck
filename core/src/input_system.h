@@ -20,7 +20,7 @@ class Profiles;
 //   sitzt sie sofort wieder darin.
 class InputSystem {
 public:
-  static constexpr size_t MAX_DEVICES = 8;
+  static constexpr size_t MAX_DEVICES = 16;  // HAL-Geräte + WebPads
   static constexpr int SLOTS = Input::MAX_PLAYERS;
   static constexpr int STICK_DPAD_THRESHOLD = 64;  // [Annahme] 50 % Auslenkung
   static constexpr uint16_t COMBO_MASK =
@@ -41,7 +41,9 @@ public:
   // Rohgeräte holen, Slots pflegen, Snapshots bauen.
   //   game: Sicht des Spiels (Slots, maxPlayers, stickAsDpad)
   //   os:   Sicht der OS-Apps (Player 0 = Primärgerät, Stick immer als D-Pad)
-  void update(Input& game, Input& os, int maxPlayers, bool stickAsDpad, bool allowJoin = true);
+  //   extra: zusätzliche Geräte aus dem Core (WebPads), hinter den HAL-Geräten
+  void update(Input& game, Input& os, int maxPlayers, bool stickAsDpad, bool allowJoin = true,
+              const hal::input::Device* extra = nullptr, size_t nExtra = 0);
   // Wie update, aber mit vorgegebenen Geräten (Tests).
   void apply(Input& game, Input& os, const hal::input::Device* devs, size_t n, int maxPlayers,
              bool stickAsDpad, bool allowJoin = true);

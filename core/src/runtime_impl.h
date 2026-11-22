@@ -7,6 +7,7 @@
 #include "pd/os/runtime.h"
 #include "profiles.h"
 #include "settings.h"
+#include "webpad.h"
 
 namespace pd::os {
 
@@ -33,6 +34,11 @@ public:
   void deleteProfile(uint8_t id);
   void submitScore(int slot, int32_t score);
   const GameInfo* lobbyGame() const { return lobby_; }
+
+  // WebPad (SPEC 13)
+  WebPad& webpad() { return webpad_; }
+  void setWebPad(bool on);           // schaltet ein/aus und merkt es sich
+  void newWebPadPassword();          // neues WLAN-Passwort, Netz startet neu, wenn an
 
 private:
   void startGame(const GameInfo& info);
@@ -68,6 +74,8 @@ private:
   Launcher launcher_{*this};
   SystemMenu menu_{*this};
   Lobby lobbyApp_{*this};
+  WebPad webpad_{*this};
+  hal::input::Device webpadDevs_[WebPad::MAX_CLIENTS] = {};
 
   const GameInfo* info_ = nullptr;
   Game* game_ = nullptr;

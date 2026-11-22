@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>pixeldeck WebPad</title>
+<!-- pixeldeck WebPad (SPEC 13). Eine Datei, wird beim Build gzip-komprimiert eingebettet.
+Keine mehrzeiligen Strings verwenden: tools/pd_embed.py entfernt Einrückungen. -->
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+html,body{height:100%;background:#000;color:#ddd;font:600 16px/1.2 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden;overscroll-behavior:none}
+#pad{position:fixed;inset:0;touch-action:none}
+.c{position:absolute;transform:translate(-50%,-50%)}
+.btn{display:flex;align-items:center;justify-content:center;background:#2a2a30;border:2px solid #44444c;color:#bbb}
+.btn.on{background:#e8e8e8;color:#000;border-color:#fff}
+.sh{top:calc(9*var(--vh,1vh));width:24vw;height:calc(13*var(--vh,1vh));border-radius:calc(5*var(--vh,1vh));font-size:calc(5*var(--vh,1vh))}
+#bL{left:14vw}#bR{left:86vw}
+.sm{top:calc(9*var(--vh,1vh));width:calc(9*var(--vh,1vh));height:calc(9*var(--vh,1vh));border-radius:50%;font-size:calc(6*var(--vh,1vh));line-height:1}
+#bSel{left:36vw}#bSta{left:64vw}
+#st{left:50vw;top:calc(9*var(--vh,1vh));max-width:22vw;padding:calc(1*var(--vh,1vh)) calc(2*var(--vh,1vh));border-radius:calc(3*var(--vh,1vh));background:#222;color:#888;font-size:calc(3.6*var(--vh,1vh));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center}
+#gear{left:50vw;top:calc(21*var(--vh,1vh));width:calc(16*var(--vh,1vh));height:calc(7*var(--vh,1vh));border-radius:calc(2*var(--vh,1vh));font-size:calc(3*var(--vh,1vh));color:#888;background:#16161a;border-color:#2c2c34}
+#rtt{left:50vw;top:calc(30*var(--vh,1vh));font-size:calc(3*var(--vh,1vh));color:#555;white-space:nowrap}
+#rtt.bad{color:#ff6a50;font-size:calc(4*var(--vh,1vh))}
+#hint{left:50vw;top:calc(52*var(--vh,1vh));width:26vw;text-align:center;font-size:calc(3.6*var(--vh,1vh));color:#ffd200;display:none}
+.stick{width:calc(36*var(--vh,1vh));height:calc(36*var(--vh,1vh));border-radius:50%;background:#16161a;border:2px solid #33333b}
+.knob{position:absolute;left:50%;top:50%;width:calc(15*var(--vh,1vh));height:calc(15*var(--vh,1vh));margin:calc(-7.5*var(--vh,1vh)) 0 0 calc(-7.5*var(--vh,1vh));border-radius:50%;background:#55555f;border:2px solid #77777f}
+.stick.on .knob{background:#9a9aa4}
+.stick.l3 .knob{background:#fff}
+#ls{left:19vw;top:calc(46*var(--vh,1vh))}#rs{left:66vw;top:calc(78*var(--vh,1vh))}
+#dp{left:34vw;top:calc(78*var(--vh,1vh));width:calc(36*var(--vh,1vh));height:calc(36*var(--vh,1vh))}
+.arm{position:absolute;width:calc(12*var(--vh,1vh));height:calc(12*var(--vh,1vh));border-radius:calc(1.5*var(--vh,1vh));background:#2a2a30;border:2px solid #44444c}
+.arm.on{background:#e8e8e8;border-color:#fff}
+#aU{left:calc(12*var(--vh,1vh));top:0}#aD{left:calc(12*var(--vh,1vh));top:calc(24*var(--vh,1vh))}#aL{left:0;top:calc(12*var(--vh,1vh))}#aR{left:calc(24*var(--vh,1vh));top:calc(12*var(--vh,1vh))}
+#ab{left:82vw;top:calc(46*var(--vh,1vh));width:calc(42*var(--vh,1vh));height:calc(42*var(--vh,1vh))}
+.fb{position:absolute;width:calc(15*var(--vh,1vh));height:calc(15*var(--vh,1vh));border-radius:50%;font-size:calc(6*var(--vh,1vh))}
+#bX{left:calc(13.5*var(--vh,1vh));top:0}#bB{left:calc(13.5*var(--vh,1vh));top:calc(27*var(--vh,1vh))}#bY{left:0;top:calc(13.5*var(--vh,1vh))}#bA{left:calc(27*var(--vh,1vh));top:calc(13.5*var(--vh,1vh))}
+.ov{position:fixed;inset:0;background:rgba(0,0,0,.92);display:none;flex-direction:column;align-items:center;justify-content:center;gap:calc(2*var(--vh,1vh));padding:calc(3*var(--vh,1vh)) 4vw;text-align:center;touch-action:pan-y}
+.ov.show{display:flex}
+.ov h1{font-size:calc(6*var(--vh,1vh));color:#fff}
+.ov p{font-size:calc(3.6*var(--vh,1vh));color:#aaa;max-width:80vw}
+#plist{display:flex;flex-wrap:wrap;gap:calc(2*var(--vh,1vh));justify-content:center;max-width:90vw;max-height:calc(56*var(--vh,1vh));overflow-y:auto}
+.pi{min-width:20vw;padding:calc(2.5*var(--vh,1vh)) 3vw;border-radius:calc(2*var(--vh,1vh));background:#222;border:3px solid #444;font-size:calc(4.5*var(--vh,1vh));color:#fff}
+.pi.cur{border-color:#fff}
+.pi.used{opacity:.4}
+.pi i{display:inline-block;width:calc(3*var(--vh,1vh));height:calc(3*var(--vh,1vh));border-radius:50%;margin-right:calc(1.5*var(--vh,1vh));vertical-align:middle}
+input{font:inherit;font-size:calc(6*var(--vh,1vh));width:40vw;padding:calc(1*var(--vh,1vh)) 2vw;text-align:center;text-transform:uppercase;background:#111;color:#fff;border:2px solid #555;border-radius:calc(2*var(--vh,1vh));-webkit-user-select:text;user-select:text}
+#cols{display:flex;gap:calc(2*var(--vh,1vh))}
+#cols b{width:calc(8*var(--vh,1vh));height:calc(8*var(--vh,1vh));border-radius:50%;border:3px solid transparent}
+#cols b.cur{border-color:#fff}
+.row{display:flex;gap:3vw}
+.act{padding:calc(2*var(--vh,1vh)) 4vw;border-radius:calc(2*var(--vh,1vh));background:#333;border:2px solid #555;color:#fff;font-size:calc(4.5*var(--vh,1vh))}
+.act.main{background:#ffd200;color:#000;border-color:#ffd200}
+#err{color:#ff6a50;font-size:calc(3.6*var(--vh,1vh));min-height:calc(4*var(--vh,1vh))}
+#rot{z-index:9}
+@media (orientation:portrait){#rot{display:flex}}
+</style>
+</head>
+<body>
+<div id="pad">
+<div class="c btn sh" id="bL" data-b="16">L</div>
+<div class="c btn sh" id="bR" data-b="32">R</div>
+<div class="c btn sm" id="bSel" data-b="128">&minus;</div>
+<div class="c btn sm" id="bSta" data-b="64">+</div>
+<div class="c" id="st">VERBINDE &hellip;</div>
+<div class="c btn" id="gear" data-x="prof">PROFIL</div>
+<div class="c" id="rtt"></div>
+<div class="c" id="hint">A DR&Uuml;CKEN ZUM MITSPIELEN</div>
+<div class="c stick" id="ls" data-s="0"><div class="knob"></div></div>
+<div class="c stick" id="rs" data-s="1"><div class="knob"></div></div>
+<div class="c" id="dp" data-d="1"><div class="arm" id="aU"></div><div class="arm" id="aD"></div><div class="arm" id="aL"></div><div class="arm" id="aR"></div></div>
+<div class="c" id="ab">
+<div class="btn fb" id="bX" data-b="4">X</div>
+<div class="btn fb" id="bY" data-b="8">Y</div>
+<div class="btn fb" id="bA" data-b="1">A</div>
+<div class="btn fb" id="bB" data-b="2">B</div>
+</div>
+</div>
+
+<div class="ov" id="prof">
+<h1>WER SPIELT?</h1>
+<div id="plist"></div>
+<p id="phint"></p>
+</div>
+
+<div class="ov" id="new">
+<h1>NEUES PROFIL</h1>
+<input id="nname" maxlength="8" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="NAME">
+<div id="cols"></div>
+<div id="err"></div>
+<div class="row"><div class="act" id="nback">ZUR&Uuml;CK</div><div class="act main" id="nok">ANLEGEN</div></div>
+</div>
+
+<div class="ov" id="msg"><h1 id="mt"></h1><p id="mp"></p><div class="act main" id="mbtn">NEU VERBINDEN</div></div>
+<div class="ov" id="rot"><h1>Bitte quer halten</h1><p>Dreht sich die Seite nicht (Anmeldefenster von iOS): Fenster schlie&szlig;en, im WLAN bleiben (&bdquo;Ohne Internet verwenden&ldquo;) und in Safari <b id="raddr"></b> &ouml;ffnen.</p></div>
+
+<script>
+"use strict";
+var $ = function (id) { return document.getElementById(id); };
+var GUEST = 255;
+var BIT = { A: 1, B: 2, X: 4, Y: 8, L: 16, R: 32, START: 64, SELECT: 128, UP: 256, DOWN: 512, LEFT: 1024, RIGHT: 2048, L3: 4096, R3: 8192 };
+
+function sget(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function sset(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+
+// Token: stabile Geräte-ID dieses Browsers (SPEC 6.3)
+var token = sget("pd_tok");
+if (!token || !/^[0-9a-f]{32}$/.test(token)) {
+var a = new Uint8Array(16);
+if (window.crypto && crypto.getRandomValues) crypto.getRandomValues(a);
+else for (var i = 0; i < 16; i++) a[i] = Math.floor(Math.random() * 256);
+token = Array.prototype.map.call(a, function (x) { return (x < 16 ? "0" : "") + x.toString(16); }).join("");
+sset("pd_tok", token);
+}
+var stored = sget("pd_prof");
+var wantProfile = stored === null ? GUEST : (parseInt(stored, 10) & 255);
+
+var ws = null, connected = false, noReconnect = false;
+var pingSeq = 0, pingAt = 0, lastPong = 0, rtt = -1;
+var palette = [], profiles = [], slot = GUEST, curProfile = GUEST, firstList = true, newColor = 0;
+
+// --- Verbindung ---------------------------------------------------------------
+function connect() {
+if (ws) return;
+setStatus();
+try { ws = new WebSocket("ws://" + location.host + "/ws"); } catch (e) { ws = null; setTimeout(connect, 1000); return; }
+ws.binaryType = "arraybuffer";
+ws.onopen = function () { connected = true; lastPong = Date.now(); hello(); setStatus(); };
+ws.onclose = function () {
+ws = null; connected = false; slot = GUEST; setStatus();
+if (!noReconnect) setTimeout(connect, 1000);
+};
+ws.onerror = function () { try { ws.close(); } catch (e) {} };
+ws.onmessage = function (ev) { onMsg(new Uint8Array(ev.data)); };
+}
+function send(arr) { if (ws && ws.readyState === 1) ws.send(new Uint8Array(arr)); }
+function hello() {
+var m = [1, 1];
+for (var i = 0; i < 16; i++) m.push(parseInt(token.substr(i * 2, 2), 16));
+m.push(wantProfile);
+send(m);
+}
+function rgb565(c) {
+var r = (c >> 11) & 31, g = (c >> 5) & 63, b = c & 31;
+return "rgb(" + Math.round(r * 255 / 31) + "," + Math.round(g * 255 / 63) + "," + Math.round(b * 255 / 31) + ")";
+}
+function profileById(id) { for (var i = 0; i < profiles.length; i++) if (profiles[i].id === id) return profiles[i]; return null; }
+function pname(id) { var p = profileById(id); return p ? p.name : "GAST"; }
+function pcolor(id) { var p = profileById(id); return p && palette[p.color] ? palette[p.color] : "#fff"; }
+
+function onMsg(d) {
+switch (d[0]) {
+case 0x81: // WELCOME: Version, Farbpalette
+palette = [];
+for (var i = 0; i < d[2]; i++) palette.push(rgb565(d[3 + 2 * i] | (d[4 + 2 * i] << 8)));
+break;
+case 0x82: // SLOT
+slot = d[1]; curProfile = d[2]; setStatus();
+break;
+case 0x83: // RUMBLE
+if (navigator.vibrate) navigator.vibrate(d[1] | (d[2] << 8));
+break;
+case 0x84: // PROFILES
+profiles = [];
+for (var k = 0, o = 2; k < d[1]; k++, o += 10) {
+var n = "";
+for (var j = 0; j < 8 && d[o + 2 + j]; j++) n += String.fromCharCode(d[o + 2 + j]);
+profiles.push({ id: d[o], color: d[o + 1], name: n });
+}
+if (wantProfile !== GUEST && !profileById(wantProfile)) choose(GUEST, true);
+if (firstList && stored === null) showProfiles();
+else if ($("prof").classList.contains("show")) showProfiles();
+firstList = false;
+setStatus();
+break;
+case 0x85: // PROFILE_SET: Konsole hat das Profil gesetzt (Systemmenü oder neu angelegt)
+wantProfile = d[1]; stored = String(d[1]); sset("pd_prof", stored);
+if ($("new").classList.contains("show")) { hide("new"); }
+setStatus();
+break;
+case 0x86: // RESYNC
+hello();
+break;
+case 0x87: // REJECT
+reject(d[1]);
+break;
+case 0x88: // PONG: Antwortzeit
+if (((d[1] | (d[2] << 8)) & 0xFFFF) === (pingSeq & 0xFFFF)) { rtt = Date.now() - pingAt; }
+lastPong = Date.now();
+showRtt();
+break;
+}
+}
+function reject(r) {
+if (r === 4) { $("err").textContent = "Nicht angelegt: Name leer oder schon 16 Profile."; return; }
+var t = { 1: ["Konsole voll", "Zu viele Handys verbunden."], 2: ["Neue Version", "Bitte die Seite neu laden."], 3: ["Anderswo verbunden", "Dieses Handy spielt gerade in einem anderen Tab."] }[r] || ["Abgelehnt", ""];
+noReconnect = true;
+$("mt").textContent = t[0]; $("mp").textContent = t[1]; show("msg");
+}
+$("mbtn").onclick = function () {
+hide("msg"); noReconnect = false;
+if (ws) { try { ws.close(); } catch (e) {} } else connect();
+};
+
+function setStatus() {
+var st = $("st");
+if (!connected) { st.textContent = "VERBINDE …"; st.style.background = "#222"; st.style.color = "#888"; $("hint").style.display = "none"; return; }
+var joined = slot !== GUEST;
+st.textContent = (joined ? "P" + (slot + 1) + " " : "") + pname(curProfile);
+st.style.background = joined ? pcolor(curProfile) : "#222";
+st.style.color = joined ? "#000" : "#ccc";
+$("hint").style.display = joined ? "none" : "block";
+}
+
+// Ping alle 500 ms: Antwortzeit anzeigen und Aussetzer sichtbar machen
+function showRtt() {
+var e = $("rtt"), late = connected && Date.now() - lastPong > 1500;
+e.className = late ? "c bad" : "c";
+e.textContent = !connected ? "" : late ? "HAKT " + ((Date.now() - lastPong) / 1000).toFixed(1) + " s" : (rtt >= 0 ? rtt + " ms" : "");
+}
+setInterval(function () {
+if (connected) { pingSeq = (pingSeq + 1) & 0xFFFF; pingAt = Date.now(); send([5, pingSeq & 255, pingSeq >> 8]); }
+showRtt();
+}, 500);
+$("raddr").textContent = "http://" + location.host;
+
+document.addEventListener("pointerup", goFull, true);
+document.addEventListener("click", goFull, true);
+// Layout an die sichtbare Höhe anpassen (Adressleiste ein/aus, Vollbild, Drehen)
+function fit() { document.documentElement.style.setProperty("--vh", (window.innerHeight / 100) + "px"); }
+window.addEventListener("resize", fit);
+window.addEventListener("orientationchange", function () { setTimeout(fit, 300); });
+document.addEventListener("fullscreenchange", fit);
+document.addEventListener("webkitfullscreenchange", fit);
+if (window.visualViewport) visualViewport.addEventListener("resize", fit);
+fit();
+
+// --- Profile ------------------------------------------------------------------
+function show(id) { $(id).classList.add("show"); }
+function hide(id) { $(id).classList.remove("show"); }
+function choose(id, silent) {
+wantProfile = id; stored = String(id); sset("pd_prof", stored);
+if (!silent) send([4, id]);
+hide("prof"); setStatus();
+}
+function item(label, color, cls, fn) {
+var b = document.createElement("div");
+b.className = "pi" + (cls ? " " + cls : "");
+if (color) { var i = document.createElement("i"); i.style.background = color; b.appendChild(i); }
+b.appendChild(document.createTextNode(label));
+b.onclick = fn;
+return b;
+}
+function showProfiles() {
+var l = $("plist");
+l.textContent = "";
+l.appendChild(item("GAST", "#fff", wantProfile === GUEST ? "cur" : "", function () { choose(GUEST); }));
+profiles.forEach(function (p) {
+l.appendChild(item(p.name, palette[p.color], p.id === wantProfile ? "cur" : "", function () { choose(p.id); }));
+});
+if (profiles.length < 16) l.appendChild(item("+ NEU", null, "", showNew));
+var noFs = !(document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen);
+$("phint").textContent = "Belegte Profile spielen als Gast. Adresse: http://" + location.host +
+(noFs && !navigator.standalone ? ". Vollbild auf dem iPhone: Teilen \u2192 Zum Home-Bildschirm" : "");
+show("prof");
+}
+function showNew() {
+hide("prof");
+$("nname").value = ""; $("err").textContent = "";
+newColor = profiles.length % Math.max(1, palette.length);
+var c = $("cols");
+c.textContent = "";
+palette.forEach(function (col, i) {
+var b = document.createElement("b");
+b.style.background = col;
+if (i === newColor) b.className = "cur";
+b.onclick = function () { newColor = i; Array.prototype.forEach.call(c.children, function (x, k) { x.className = k === i ? "cur" : ""; }); };
+c.appendChild(b);
+});
+show("new");
+}
+$("nname").oninput = function () {
+var v = this.value.toUpperCase().replace(/[^A-Z0-9 \-]/g, "").substr(0, 8);
+if (v !== this.value) this.value = v;
+};
+$("nok").onclick = function () {
+var v = $("nname").value.toUpperCase().replace(/[^A-Z0-9 \-]/g, "").trim();
+if (!v) { $("err").textContent = "Bitte einen Namen eingeben."; return; }
+var m = [3];
+for (var i = 0; i < 8; i++) m.push(i < v.length ? v.charCodeAt(i) : 0);
+m.push(newColor);
+send(m);
+$("nname").blur();
+};
+$("nback").onclick = function () { hide("new"); showProfiles(); };
+
+// --- Eingabe ------------------------------------------------------------------
+var pad = $("pad"), ptrs = {}, axes = [0, 0, 0, 0], lastUp = [0, 0], sentB = -1, sentAx = "", lastSend = 0;
+
+// Vollbild: Browser erlauben es nur nach einer Nutzeraktion, bei Touch zählt erst das
+// Loslassen (pointerup/click), nicht pointerdown. Bei jedem Loslassen erneut versuchen, falls
+// der Vollbildmodus nicht aktiv ist (z. B. nach Zurück-Geste). iPhone: keine Fullscreen-API.
+function isFull() { return !!(document.fullscreenElement || document.webkitFullscreenElement); }
+function lockLandscape() {
+if (screen.orientation && screen.orientation.lock) screen.orientation.lock("landscape").catch(function () {});
+}
+function goFull() {
+if (isFull()) return;
+var el = document.documentElement, f = el.requestFullscreen || el.webkitRequestFullscreen;
+if (!f) return;
+try {
+var p = f.call(el, { navigationUI: "hide" });
+if (p && p.then) p.then(lockLandscape).catch(function () {});
+else lockLandscape();
+} catch (e) {}
+}
+function target(x, y) {
+var el = document.elementFromPoint(x, y);
+return el ? el.closest("[data-b],[data-s],[data-d],[data-x]") : null;
+}
+function dpadBits(p, x, y) {
+var r = p.el.getBoundingClientRect();
+var dx = x - (r.left + r.width / 2), dy = y - (r.top + r.height / 2), t = r.width * 0.12, b = 0;
+var ax = Math.abs(dx), ay = Math.abs(dy);
+if (ax > t && ax > ay * 0.414) b |= dx < 0 ? BIT.LEFT : BIT.RIGHT;
+if (ay > t && ay > ax * 0.414) b |= dy < 0 ? BIT.UP : BIT.DOWN;
+return b;
+}
+function stickMove(p, x, y) {
+var r = p.el.getBoundingClientRect(), rad = r.width / 2;
+var dx = (x - (r.left + rad)) / rad, dy = (y - (r.top + rad)) / rad, m = Math.sqrt(dx * dx + dy * dy);
+if (m > 1) { dx /= m; dy /= m; }
+axes[p.s * 2] = Math.round(dx * 127);
+axes[p.s * 2 + 1] = Math.round(dy * 127);
+p.el.firstChild.style.transform = "translate(" + (dx * rad * 0.62) + "px," + (dy * rad * 0.62) + "px)";
+}
+function stickReset(p) {
+axes[p.s * 2] = axes[p.s * 2 + 1] = 0;
+p.el.firstChild.style.transform = "";
+p.el.classList.remove("on", "l3");
+}
+function grab(p, el) {
+p.el = el; p.bit = 0; p.s = -1; p.d = false;
+if (!el) return;
+if (el.dataset.b) { p.bit = parseInt(el.dataset.b, 10); el.classList.add("on"); }
+}
+function release(p) {
+if (!p.el) return;
+if (p.s >= 0) { lastUp[p.s] = Date.now(); stickReset(p); }
+else p.el.classList.remove("on");
+p.el = null; p.bit = 0;
+}
+function buttons() {
+var b = 0;
+for (var k in ptrs) {
+var p = ptrs[k];
+b |= p.bit | (p.dbits || 0);
+if (p.l3) b |= p.s === 0 ? BIT.L3 : BIT.R3;
+}
+["aU", "aD", "aL", "aR"].forEach(function (id, i) { $(id).classList.toggle("on", !!(b & [BIT.UP, BIT.DOWN, BIT.LEFT, BIT.RIGHT][i])); });
+return b;
+}
+function sendState(force) {
+var b = buttons(), a = axes.join(",");
+if (!force && b === sentB && a === sentAx) return;
+send([2, b & 255, b >> 8, axes[0] & 255, axes[1] & 255, axes[2] & 255, axes[3] & 255]);
+sentB = b; sentAx = a; lastSend = Date.now();
+}
+pad.addEventListener("pointerdown", function (e) {
+e.preventDefault();
+var el = target(e.clientX, e.clientY);
+if (el && el.dataset.x === "prof") { showProfiles(); return; }
+var p = { el: null, bit: 0, s: -1, dbits: 0, l3: false };
+ptrs[e.pointerId] = p;
+try { pad.setPointerCapture(e.pointerId); } catch (x) {}
+if (el && el.dataset.s) {
+p.el = el; p.s = parseInt(el.dataset.s, 10);
+el.classList.add("on");
+if (Date.now() - lastUp[p.s] < 300) { p.l3 = true; el.classList.add("l3"); } // Doppeltipp = L3/R3
+stickMove(p, e.clientX, e.clientY);
+} else if (el && el.dataset.d) {
+p.el = el; p.d = true; p.dbits = dpadBits(p, e.clientX, e.clientY);
+} else grab(p, el);
+sendState(false);
+});
+pad.addEventListener("pointermove", function (e) {
+var p = ptrs[e.pointerId];
+if (!p) return;
+e.preventDefault();
+if (p.s >= 0) stickMove(p, e.clientX, e.clientY);
+else if (p.d) p.dbits = dpadBits(p, e.clientX, e.clientY);
+else {
+var el = target(e.clientX, e.clientY);
+if (el && !el.dataset.b) el = null;
+if (el !== p.el) { release(p); grab(p, el); }  // über Tasten gleiten
+}
+if (p.s < 0) sendState(false);
+});
+function up(e) {
+var p = ptrs[e.pointerId];
+if (!p) return;
+release(p);
+delete ptrs[e.pointerId];
+sendState(false);
+}
+pad.addEventListener("pointerup", up);
+pad.addEventListener("pointercancel", up);
+pad.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+document.addEventListener("visibilitychange", function () {
+if (!document.hidden) return;
+for (var k in ptrs) release(ptrs[k]);
+ptrs = {};
+sendState(true);
+});
+// Sticks gebündelt, sonst bei Änderung sofort; Heartbeat alle 100 ms (SPEC 13.2)
+setInterval(function () { sendState(Date.now() - lastSend >= 100); }, 16);
+
+connect();
+</script>
+</body>
+</html>

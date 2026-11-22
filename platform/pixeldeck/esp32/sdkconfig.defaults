@@ -26,3 +26,22 @@ CONFIG_ESP_CONSOLE_UART_BAUDRATE=115200
 
 # HUB75-Lib ohne Adafruit-GFX (pixeldeck zeichnet selbst)
 # CONFIG_ESP32_HUB75_USE_GFX is not set
+
+# WebPad (SPEC 13): WebSocket im HTTP-Server
+CONFIG_HTTPD_WS_SUPPORT=y
+# lwIP-Sockets: httpd (12 + 3 intern) + DNS; mit 10 kam nur ein Handy durch (accept: ENFILE)
+CONFIG_LWIP_MAX_SOCKETS=16
+
+# WLAN-Puffer kleiner (mit zwei Handys fiel der Heap auf 4,9 KB). Wir übertragen nur kleine
+# Nachrichten; Durchsatz ist egal. RX_BA_WIN darf STATIC_RX_BUFFER_NUM nicht übersteigen.
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=6
+CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=16
+CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=16
+CONFIG_ESP_WIFI_AMPDU_TX_ENABLED=n
+CONFIG_ESP_WIFI_RX_BA_WIN=6
+CONFIG_LWIP_TCP_SND_BUF_DEFAULT=2880
+CONFIG_LWIP_TCP_WND_DEFAULT=2880
+
+# Diagnose: CPU-Last je Kern (WebPad-Statistik in hal_net.cpp)
+CONFIG_FREERTOS_USE_TRACE_FACILITY=y
+CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y

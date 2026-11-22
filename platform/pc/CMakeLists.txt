@@ -19,9 +19,11 @@ add_executable(pixeldeck
   main.cpp
   sdl_hal.cpp
   heap_guard.cpp
+  net_pc.cpp
   png.cpp
   storage_pc.cpp
   ${PD_GAME_REGISTRY}
 )
-target_link_libraries(pixeldeck PRIVATE pd_core pd_flags ${PD_GAME_TARGETS} SDL3::SDL3)
+find_package(Threads REQUIRED)
+target_link_libraries(pixeldeck PRIVATE pd_core pd_flags ${PD_GAME_TARGETS} SDL3::SDL3 Threads::Threads)
 set_target_properties(pixeldeck PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})

@@ -1,15 +1,17 @@
 # ESP32-Plattform: HAL + app_main. Core und Spiele kommen als normale CMake-Targets
 # aus dem Repo dazu (dieselben CMake-Dateien wie beim PC-Build).
 idf_component_register(
-  SRCS app_main.cpp hal_display.cpp hal_link.cpp hal_system.cpp
+  SRCS app_main.cpp hal_display.cpp hal_link.cpp hal_net.cpp hal_system.cpp
   INCLUDE_DIRS .
   REQUIRES hub75 nvs_flash esp_timer esp_driver_uart esp_driver_gpio bootloader_support
-           esp_system)
+           esp_system esp_wifi esp_netif esp_event esp_http_server lwip
+  # HAL-Dateien, auf die nur pd_core verweist (z. B. hal_net.cpp), sonst verwirft sie der Linker
+  WHOLE_ARCHIVE)
 
 get_filename_component(PD_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../../.. ABSOLUTE)
 
 option(PD_DEV "Dev-Kanal über UART (Befehle !fb, !press, !stat, ...)" ON)
-set(PD_ARENA_SIZE 65536 CACHE STRING "Arena-Größe in Bytes (SPEC 9)")
+set(PD_ARENA_SIZE 32768 CACHE STRING "Arena-Größe in Bytes (SPEC 9)")
 set(PD_GAMES_EXCLUDE "" CACHE STRING "Spiel-Ordner, die nicht gebaut werden (;-Liste)")
 set(PD_PANEL_GAMMA 2.2 CACHE STRING "Gamma der Panel-Korrektur (Display-HAL)")
 

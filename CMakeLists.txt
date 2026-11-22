@@ -11,7 +11,7 @@ endif()
 
 option(PD_BUILD_TESTS "Unit-Tests bauen" ON)
 option(PD_FETCH_SDL3  "SDL3 per FetchContent holen, falls nicht installiert" ON)
-set(PD_ARENA_SIZE 65536 CACHE STRING "Arena-Größe in Bytes (SPEC 9)")
+set(PD_ARENA_SIZE 32768 CACHE STRING "Arena-Größe in Bytes (SPEC 9)")
 set(PD_GAMES_EXCLUDE "" CACHE STRING "Spiel-Ordner, die nicht gebaut werden (;-Liste)")
 
 # Konfigurationswerte für Core und Spiele

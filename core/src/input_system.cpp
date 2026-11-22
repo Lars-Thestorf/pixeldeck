@@ -4,6 +4,7 @@
 
 #include "os_call.h"
 #include "profiles.h"
+#include "webpad.h"
 
 namespace pd {
 
@@ -16,6 +17,7 @@ Player& Input::player(int slot) {
 void Player::rumble(uint16_t ms) {
   if (!connected_ || ms == 0) return;
   os::OsCallScope osCall;
+  if (os::webpadRumble(deviceId_, ms)) return;
   hal::input::rumble(deviceId_, ms);
 }
 
@@ -47,9 +49,10 @@ void InputSystem::reset() {
 }
 
 void InputSystem::update(Input& game, Input& os, int maxPlayers, bool stickAsDpad,
-                         bool allowJoin) {
+                         bool allowJoin, const hal::input::Device* extra, size_t nExtra) {
   size_t n = hal::input::poll(raw_, MAX_DEVICES);
   if (n > MAX_DEVICES) n = MAX_DEVICES;
+  for (size_t i = 0; i < nExtra && n < MAX_DEVICES; ++i) raw_[n++] = extra[i];
   apply(game, os, raw_, n, maxPlayers, stickAsDpad, allowJoin);
 }
 

@@ -47,8 +47,8 @@ public:
   void enter(bool inGame);
   void tick(Context& ctx) override;
 
-  enum class Item : uint8_t { Resume, Quit, Players, Profiles, Scores, Brightness, Back };
-  enum class Page : uint8_t { Main, Players, Profiles, Edit, Scores };
+  enum class Item : uint8_t { Resume, Quit, Players, Profiles, Scores, WebPad, Brightness, Back };
+  enum class Page : uint8_t { Main, Players, Profiles, Edit, Scores, WebPad };
 
 private:
   void tickMain(Context& ctx);
@@ -56,12 +56,13 @@ private:
   void tickProfiles(Context& ctx);
   void tickEdit(Context& ctx);
   void tickScores(Context& ctx);
+  void tickWebPad(Context& ctx);
   void openEdit(int profileIndex);  // -1 = neues Profil
   void loadScores();
 
   Runtime& rt_;
   Page page_ = Page::Main;
-  Item items_[6] = {};
+  Item items_[8] = {};
   int count_ = 0;
   int sel_ = 0;
 

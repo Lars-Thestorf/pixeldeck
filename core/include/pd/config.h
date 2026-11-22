@@ -2,7 +2,7 @@
 // Konfigurationswerte (SPEC 16.4). Per CMake überschreibbar (-DPD_ARENA_SIZE=...).
 
 #ifndef PD_ARENA_SIZE
-#define PD_ARENA_SIZE (64 * 1024)
+#define PD_ARENA_SIZE (32 * 1024)
 #endif
 #ifndef PD_SAVE_MAX
 #define PD_SAVE_MAX (4 * 1024)

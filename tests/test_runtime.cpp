@@ -155,8 +155,8 @@ TEST_CASE("Systemmenü: Weiter und Helligkeit werden gespeichert") {
   testhal::onPoll = [](int f) {
     uint16_t b = 0;
     if (f >= 10 && f < 75) b = START | SELECT;  // Menü auf
-    // WEITER, BEENDEN, SPIELER, PROFILE, REKORDE, HELL
-    if (f == 80 || f == 82 || f == 84 || f == 86 || f == 88) b = DOWN;
+    // WEITER, BEENDEN, SPIELER, PROFILE, REKORDE, WEBPAD, HELL
+    if (f == 78 || f == 80 || f == 82 || f == 84 || f == 86 || f == 88) b = DOWN;
     if (f == 90) b = RIGHT;                     // +1 (Standard 6 -> 7)
     if (f == 95) b = uint16_t(Button::B);       // schließen = weiter
     testhal::device.state.buttons = b;

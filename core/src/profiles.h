@@ -43,6 +43,9 @@ public:
   bool update(uint8_t id, const char* name, uint8_t color);
   bool remove(uint8_t id);
 
+  // Zählt jede Änderung der Liste (Anlegen, Ändern, Löschen, Laden); fürs WebPad.
+  uint32_t revision() const { return rev_; }
+
   uint8_t lastFor(uint32_t deviceId) const;     // kGuest, wenn unbekannt
   void remember(uint32_t deviceId, uint8_t profileId);
 
@@ -63,6 +66,7 @@ private:
   uint8_t nextId_ = 1;
   DevPref dev_[MAX_DEVICES] = {};
   uint16_t ageCounter_ = 0;
+  uint32_t rev_ = 0;
 };
 
 }  // namespace pd::os

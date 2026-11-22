@@ -373,10 +373,13 @@ void rumble(uint32_t id, uint16_t ms) {  // Tastaturen: No-Op
 
 namespace time {
 
-uint64_t micros() { return g.cfg.headless ? g.virtualUs : SDL_GetTicksNS() / 1000u; }
+// Headless läuft mit virtueller Uhr, außer mit --webpad (echte Handys brauchen Echtzeit).
+bool virtualClock() { return g.cfg.headless && !g.cfg.webpadForce; }
+
+uint64_t micros() { return virtualClock() ? g.virtualUs : SDL_GetTicksNS() / 1000u; }
 
 void sleepUntil(uint64_t target) {
-  if (g.cfg.headless) {
+  if (virtualClock()) {
     if (target > g.virtualUs) g.virtualUs = target;
     return;
   }

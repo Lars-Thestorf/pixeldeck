@@ -21,6 +21,8 @@ void usage() {
       "  --out <datei.png>   letztes Bild am Ende als PNG speichern (64x32)\n"
       "  --fuzz-input <seed> zufällige Eingaben auf Slot 0 (Smoke-Tests)\n"
       "  --data-dir <pfad>   Ablage für Spielstände/Einstellungen (Standard ~/.pixeldeck)\n"
+      "  --webpad            WebPad sofort einschalten (sonst im Systemmenü); headless in Echtzeit\n"
+      "  --webpad-port <n>   Port des WebPads (Standard 8080, 0 = aus)\n"
       "  --list              registrierte Spiele auflisten\n"
       "  --help              diese Hilfe\n\n"
       "Tastatur 1 (Slot 0, rechte Hälfte): Pfeile D-Pad, ; . O K = A B X Y, I/P = L/R,\n"
@@ -29,6 +31,7 @@ void usage() {
       "Tastatur 2 (linke Hälfte, Beitritt mit A): WASD D-Pad, H B T F = A B X Y, Q/E = L/R,\n"
       "  2/1 = Start/Select.\n"
       "Gamepads (SDL): Beitritt mit A (rechte Aktionstaste), Rumble wird unterstützt.\n"
+      "WebPad: Systemmenü > WEBPAD, dann am Handy http://<PC-IP>:<Port>/ öffnen.\n"
       "Tasten nach US-Position. Esc beendet, F2 LED-Optik/Pixel.\n"
       "Systemmenü: Start im Launcher, Start+Select 1 s im Spiel.\n");
 }
@@ -81,6 +84,10 @@ int main(int argc, char** argv) {
       pd::pc::config().fuzzInput = true; pd::pc::config().fuzzSeed = n; ++i;
     } else if (!std::strcmp(a, "--data-dir") && v) {
       pd::pc::config().dataDir = v; ++i;
+    } else if (!std::strcmp(a, "--webpad")) {
+      opts.webpad = true; pd::pc::config().webpadForce = true;
+    } else if (!std::strcmp(a, "--webpad-port") && parseU32(v, n) && n <= 65535) {
+      pd::pc::config().webpadPort = int(n); ++i;
     } else if (!std::strcmp(a, "--tick-warn-us") && parseU32(v, n)) {
       opts.tickWarnUs = n; ++i;
     } else {

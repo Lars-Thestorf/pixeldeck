@@ -30,6 +30,31 @@ pd::hal::power::PowerState power{};
 int shutdownReadyCalls = 0;
 pd::hal::app::LastReset nextReset{};
 std::string activity;
+bool netStartOk = true;
+bool netRunning = false;
+std::vector<pd::hal::net::Event> netIn;
+std::vector<NetMsg> netOut;
+
+void netOpen(pd::hal::net::ClientId c) {
+  pd::hal::net::Event e{};
+  e.type = pd::hal::net::EventType::Open;
+  e.client = c;
+  netIn.push_back(e);
+}
+void netClose(pd::hal::net::ClientId c) {
+  pd::hal::net::Event e{};
+  e.type = pd::hal::net::EventType::Close;
+  e.client = c;
+  netIn.push_back(e);
+}
+void netMsg(pd::hal::net::ClientId c, std::vector<uint8_t> d) {
+  pd::hal::net::Event e{};
+  e.type = pd::hal::net::EventType::Message;
+  e.client = c;
+  e.len = uint8_t(d.size());
+  std::memcpy(e.data, d.data(), d.size());
+  netIn.push_back(e);
+}
 
 struct Entry { std::string name; std::vector<uint8_t> data; };
 std::vector<Entry> store;
@@ -59,6 +84,10 @@ void reset() {
   shutdownReadyCalls = 0;
   nextReset = {};
   activity.clear();
+  netStartOk = true;
+  netRunning = false;
+  netIn.clear();
+  netOut.clear();
 }
 void clearStorage() { store.clear(); }
 
@@ -141,4 +170,25 @@ bool erase(const char* ns, const char* key) {
   return false;
 }
 }  // namespace storage
+namespace net {
+void serveStatic(const char*, const uint8_t*, size_t, const char*) {}
+bool start(const char*, const char*) {
+  testhal::netRunning = testhal::netStartOk;
+  return testhal::netRunning;
+}
+void stop() { testhal::netRunning = false; }
+Info info() { return Info{testhal::netRunning, true, 0, 80, "192.168.4.1"}; }
+size_t poll(Event* out, size_t max) {
+  size_t n = 0;
+  while (n < max && !testhal::netIn.empty()) {
+    out[n++] = testhal::netIn.front();
+    testhal::netIn.erase(testhal::netIn.begin());
+  }
+  return n;
+}
+bool send(ClientId c, const uint8_t* d, size_t len) {
+  testhal::netOut.push_back({c, std::vector<uint8_t>(d, d + len)});
+  return true;
+}
+}  // namespace net
 }  // namespace pd::hal

@@ -30,7 +30,9 @@ void Profiles::copyName(char* dst, const char* src) {
 }
 
 void Profiles::clear() {
+  const uint32_t rev = rev_;
   *this = Profiles{};
+  rev_ = rev + 1;
 }
 
 bool Profiles::load() {
@@ -112,6 +114,7 @@ uint8_t Profiles::create(const char* name, uint8_t color) {
   std::memcpy(p.name, n, sizeof p.name);
   nextId_ = uint8_t(id + 1);
   if (nextId_ == kGuest || nextId_ == 0) nextId_ = 1;
+  ++rev_;
   return id;
 }
 
@@ -123,6 +126,7 @@ bool Profiles::update(uint8_t id, const char* name, uint8_t color) {
   if (!n[0]) return false;
   std::memcpy(list_[i].name, n, sizeof n);
   list_[i].color = uint8_t(color % kProfileColors);
+  ++rev_;
   return true;
 }
 
@@ -134,6 +138,7 @@ bool Profiles::remove(uint8_t id) {
   list_[count_] = Profile{};
   for (DevPref& d : dev_)
     if (d.used && d.profileId == id) d.profileId = kGuest;
+  ++rev_;
   return true;
 }
 

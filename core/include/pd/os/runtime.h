@@ -13,6 +13,7 @@ struct RunOptions {
   uint32_t    seed = 0;
   uint32_t    maxTicks = 0;      // 0 = unbegrenzt
   uint32_t    tickWarnUs = 0;    // 0 = keine Warnung bei langsamen Ticks
+  bool        webpad = false;    // WebPad für diesen Lauf einschalten (ohne Einstellung)
 };
 
 // Hauptschleife. Rückgabe: 0 = ok, 2 = Spiel nicht gefunden.
