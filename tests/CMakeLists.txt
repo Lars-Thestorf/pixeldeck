@@ -50,3 +50,15 @@ add_test(NAME smoke_launcher
           --data-dir ${smoke_dir}/data --out ${smoke_dir}/launcher.png)
 set_tests_properties(smoke_launcher PROPERTIES TIMEOUT 120
   FAIL_REGULAR_EXPRESSION "Heap-Allokation;\\[ERROR\\]")
+
+# QR-Encoder gegen einen echten Decoder prüfen (nur wenn zbarimg installiert ist)
+find_program(PD_ZBARIMG zbarimg)
+add_executable(pd_qrcheck qrcheck.cpp)
+target_include_directories(pd_qrcheck PRIVATE ${PROJECT_SOURCE_DIR}/core/src)
+target_link_libraries(pd_qrcheck PRIVATE pd_core)
+if(PD_ZBARIMG)
+  file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/qr)
+  add_test(NAME qr_zbar COMMAND pd_qrcheck ${PD_ZBARIMG} ${CMAKE_BINARY_DIR}/qr)
+else()
+  message(STATUS "pixeldeck: zbarimg fehlt, QR-Decoder-Test entfällt")
+endif()

@@ -7,6 +7,7 @@
 #include "pd/context.h"
 #include "pd/hal/net.h"
 #include "pd/os/runtime.h"
+#include "qrcode.h"
 #include "runtime_impl.h"
 #include "score_table.h"
 
@@ -20,6 +21,7 @@ constexpr uint16_t BG = rgb(0, 0, 20);
 constexpr uint16_t FRAME = rgb(50, 50, 110);
 
 ScoreTable g_scores;  // Launcher und Systemmenü, nie gleichzeitig aktiv
+QrCode g_qr;          // WebPad-QR-Ansicht, ca. 1,1 KB
 
 const char* deviceTag(hal::input::DeviceType t) {
   switch (t) {
@@ -213,6 +215,7 @@ void SystemMenu::tick(Context& ctx) {
     case Page::Edit: tickEdit(ctx); break;
     case Page::Scores: tickScores(ctx); break;
     case Page::WebPad: tickWebPad(ctx); break;
+    case Page::WebPadQr: tickWebPadQr(ctx); break;
   }
 }
 
@@ -546,6 +549,13 @@ void SystemMenu::tickWebPad(Context& ctx) {
   if (in.pressed(Button::A)) rt_.setWebPad(!wp.running());
   const hal::net::Info info = wp.running() ? hal::net::info() : hal::net::Info{};
   if (in.pressed(Button::X) && wp.running() && info.accessPoint) rt_.newWebPadPassword();
+  if (in.pressed(Button::Y) && wp.running()) {
+    page_ = Page::WebPadQr;
+    qrStep_ = info.accessPoint ? 0 : 1;  // am PC gibt es kein eigenes WLAN
+    qrSince_ = ctx.tick();
+    encodeQr();
+    return;
+  }
 
   g.fillRect(0, 0, Gfx::W, Gfx::H, BG);
   g.text(0, 0, "WEBPAD", TXT);
@@ -566,13 +576,73 @@ void SystemMenu::tickWebPad(Context& ctx) {
     std::snprintf(buf, sizeof buf, "PW %s", st.apPass);
     g.text(0, 13, buf, color::WHITE);
     g.text(0, 19, info.host, TXT);
-    g.text(0, 26, "A AUS X NEUES PW", DIM);
+    g.text(0, 26, "A AUS X PW Y QR", DIM);
   } else {
     g.text(0, 7, "IM NETZ DES PC", DIM);
     g.text(0, 13, info.host, color::WHITE);
     std::snprintf(buf, sizeof buf, "PORT %u", unsigned(info.port));
     g.text(0, 19, buf, color::WHITE);
-    g.text(0, 26, "A AUS", DIM);
+    g.text(0, 26, "A AUS  Y QR", DIM);
+  }
+}
+
+// QR-Code für Schritt 0 (WLAN-Zugangsdaten) bzw. 1 (Adresse der Seite)
+void SystemMenu::encodeQr() {
+  const hal::net::Info info = hal::net::info();
+  const Settings& st = rt_.settings();
+  char text[80];
+  if (qrStep_ == 0)  // SSID und Passwort enthalten nur Hex-Ziffern bzw. Ziffern, kein Escaping nötig
+    std::snprintf(text, sizeof text, "WIFI:T:WPA;S:PIXELDECK-%s;P:%s;;", st.apSuffix, st.apPass);
+  else if (info.port == 80)  // Großbuchstaben: alphanumerischer Modus, Version 1 statt 2
+    std::snprintf(text, sizeof text, "HTTP://%s", info.host);
+  else
+    std::snprintf(text, sizeof text, "HTTP://%s:%u", info.host, unsigned(info.port));
+  qrOk_ = g_qr.encode(text);
+}
+
+// QR-Ansicht (SPEC 12.2): links der Code, rechts die Erklärung. Links/Rechts wechselt zwischen
+// WLAN und Seite, sonst automatisch alle 8 s; B oder Y zurück.
+void SystemMenu::tickWebPadQr(Context& ctx) {
+  Gfx& g = ctx.gfx;
+  Input& in = ctx.input;
+  if (!rt_.webpad().running() || in.pressed(Button::B) || in.pressed(Button::Y)) {
+    page_ = Page::WebPad;
+    return;
+  }
+  const bool ap = hal::net::info().accessPoint;
+  if (ap && (in.pressed(Button::Left) || in.pressed(Button::Right) ||
+             ctx.tick() - qrSince_ >= 8u * PD_TICK_HZ)) {
+    qrStep_ ^= 1;
+    qrSince_ = ctx.tick();
+    encodeQr();
+  }
+
+  g.clear();
+  if (!qrOk_) {
+    center(g, 13, "QR ZU LANG", rgb(255, 60, 40));
+    return;
+  }
+  // Helle Module leuchten, dunkle bleiben aus; 1 Modul heller Rand. Nicht voll weiß, damit die
+  // Kamera nicht überstrahlt [Annahme, am Gerät prüfen].
+  constexpr uint16_t kLight = rgb(170, 170, 170);
+  const int n = g_qr.size();
+  const int box = n + 2;
+  const int ox = box >= 31 ? 0 : (31 - box) / 2, oy = (Gfx::H - box) / 2;
+  g.fillRect(ox, oy, box, box, kLight);
+  for (int y = 0; y < n; ++y)
+    for (int x = 0; x < n; ++x)
+      if (g_qr.dark(x, y)) g.pixel(ox + 1 + x, oy + 1 + y, color::BLACK);
+
+  const int tx = 34;
+  if (ap) g.text(tx, 0, qrStep_ == 0 ? "1/2" : "2/2", DIM);
+  if (qrStep_ == 0) {
+    g.text(tx, 8, "WLAN", color::WHITE, Font::Large);
+    g.text(tx, 18, "MIT", TXT);
+    g.text(tx, 24, "KAMERA", TXT);
+  } else {
+    g.text(tx, 8, "SEITE", color::WHITE, Font::Large);
+    g.text(tx, 18, "IM", TXT);
+    g.text(tx, 24, "BROWSER", TXT);
   }
 }
 

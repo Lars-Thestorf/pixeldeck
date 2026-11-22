@@ -588,7 +588,10 @@ Gesamtumfang:
 - Nur im Spiel: **Weiter**, **Spiel beenden**
 - **Spieler:** Slots mit Controller-Icon, tauschen, Profil wechseln
 - **Profile:** anlegen, umbenennen, löschen
-- **WebPad:** an/aus, SSID + Passwort (umgesetzt M6, als Text), QR-Code **[Offen]** (für die WLAN-Zugangsdaten braucht es Version 3, 29x29 Module; passt mit 1 px pro Modul knapp auf 32 Pixel Höhe, Lesbarkeit auf LEDs testen)
+- **WebPad:** an/aus, SSID + Passwort (umgesetzt M6, als Text), QR-Code (umgesetzt nach M6, siehe unten)
+
+QR-Ansicht (nach M6): Y auf der WEBPAD-Seite. Links der Code mit 1 px pro Modul und 1 Modul hellem Rand, rechts die Erklärung. Schritt 1/2 "WLAN MIT KAMERA": `WIFI:T:WPA;S:PIXELDECK-XXXX;P:<pw>;;` (Byte-Modus, Version 3, 29x29, mit Rand 31 px hoch). Schritt 2/2 "SEITE IM BROWSER": `HTTP://192.168.77.1` in Großbuchstaben, damit alphanumerisch und Version 1 (21x21). Wechsel mit Links/Rechts, sonst automatisch alle 8 s; B oder Y zurück. Am PC nur die Adresse mit Port. Helle Module leuchten in Grau (170, 170, 170) **[Annahme]**, damit die Kamera nicht überstrahlt. Der Seiten-Code öffnet die Seite direkt im normalen Browser, unter iOS also in Safari statt im Anmeldefenster, das nicht ins Querformat dreht.
+Encoder `core/src/qrcode.*`: eigene Umsetzung nach ISO/IEC 18004, Version 1-4, Fehlerkorrektur L (je ein Reed-Solomon-Block), alphanumerisch oder Byte, Maskenwahl nach Strafpunkten, kein Heap. Geprüft mit `zbarimg` (CTest `qr_zbar`, nur wenn zbar installiert ist) und am Gerät über den Framebuffer (`pd_serial.py fb` + `zbarimg`, beide Codes gelesen). Mit der Handykamera direkt von der Matrix lesbar (vom Nutzer am Gerät bestätigt).
 - **Helligkeit**, **Lautstärke**
 - **Highscores:** ansehen, pro Spiel zurücksetzen
 - **Info:** Firmware-Version, freier Heap, Arena-Höchststand, Tick-Dauer (Durchschnitt/Maximum), Akku in mV
@@ -853,7 +856,7 @@ Startspiele (eigene Designs, keine Nachbildungen bestehender Spiele):
 3. Tick-Dauer gemessen (14.1): unter 0,5 ms. Die PC-Warnschwelle von 1666 µs bleibt
 4. Audio-Hardware (I2S-DAC oder interner DAC)
 5. ~~Fonts erstellen bzw. lizenzkonforme Quelle wählen~~ erledigt in M1 (selbst gepixelt)
-6. QR-Code-Lesbarkeit auf der Matrix testen
+6. ~~QR-Code-Lesbarkeit auf der Matrix testen~~ umgesetzt (12.2), mit Handykamera lesbar
 7. ~~WLAN-Passwortschema für das WebPad~~ **[Annahme]** in M6: WPA2, 8 zufällige Ziffern pro Gerät (13.1); bestätigen
 8. GIF-Encoder für den Simulator auswählen (Lizenz)
 9. Registrierungs-Syntax, falls Windows/MSVC wichtig wird (Designated Initializers)

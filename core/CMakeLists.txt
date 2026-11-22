@@ -19,6 +19,7 @@ add_library(pd_core STATIC
   src/input_system.cpp
   src/os_apps.cpp
   src/profiles.cpp
+  src/qrcode.cpp
   src/runtime.cpp
   src/score_table.cpp
   src/settings.cpp

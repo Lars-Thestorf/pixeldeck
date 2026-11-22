@@ -48,7 +48,7 @@ public:
   void tick(Context& ctx) override;
 
   enum class Item : uint8_t { Resume, Quit, Players, Profiles, Scores, WebPad, Brightness, Back };
-  enum class Page : uint8_t { Main, Players, Profiles, Edit, Scores, WebPad };
+  enum class Page : uint8_t { Main, Players, Profiles, Edit, Scores, WebPad, WebPadQr };
 
 private:
   void tickMain(Context& ctx);
@@ -57,6 +57,8 @@ private:
   void tickEdit(Context& ctx);
   void tickScores(Context& ctx);
   void tickWebPad(Context& ctx);
+  void tickWebPadQr(Context& ctx);
+  void encodeQr();
   void openEdit(int profileIndex);  // -1 = neues Profil
   void loadScores();
 
@@ -75,6 +77,9 @@ private:
   int  scGame_ = 0, scTop_ = 0;       // Highscores: Spiel (Index in der Registry), Scroll
   bool scConfirm_ = false;
   bool scLoaded_ = false;
+  int  qrStep_ = 0;                   // QR-Ansicht: 0 WLAN, 1 Seite
+  uint32_t qrSince_ = 0;              // Tick des letzten Wechsels (automatisch alle 8 s)
+  bool qrOk_ = false;
 };
 
 }  // namespace pd::os
