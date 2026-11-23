@@ -45,6 +45,12 @@ foreach(t IN LISTS PD_GAME_TARGETS)
   set_tests_properties(smoke_${id} PROPERTIES TIMEOUT 60
     FAIL_REGULAR_EXPRESSION "Heap-Allokation;\\[ERROR\\]")
 endforeach()
+# Snake mit 4 Zufallsspielern (Mehrspieler- und Powerup-Pfad)
+add_test(NAME smoke_snake_4p
+  COMMAND pixeldeck --headless --game snake --ticks 36000 --seed 3 --fuzz-input 11
+          --fuzz-players 4 --data-dir ${smoke_dir}/data4 --out ${smoke_dir}/snake_4p.png)
+set_tests_properties(smoke_snake_4p PROPERTIES TIMEOUT 60
+  FAIL_REGULAR_EXPRESSION "Heap-Allokation;\\[ERROR\\]")
 add_test(NAME smoke_launcher
   COMMAND pixeldeck --headless --ticks 20000 --seed 1 --fuzz-input 3
           --data-dir ${smoke_dir}/data --out ${smoke_dir}/launcher.png)

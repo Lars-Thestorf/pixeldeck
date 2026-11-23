@@ -20,6 +20,7 @@ void usage() {
       "  --headless          ohne Fenster, virtuelle Uhr (braucht --ticks)\n"
       "  --out <datei.png>   letztes Bild am Ende als PNG speichern (64x32)\n"
       "  --fuzz-input <seed> zufällige Eingaben auf Slot 0 (Smoke-Tests)\n"
+      "  --fuzz-players <n>  mit --fuzz-input: n Zufallsgeräte (1-4), weitere treten per A bei\n"
       "  --data-dir <pfad>   Ablage für Spielstände/Einstellungen (Standard ~/.pixeldeck)\n"
       "  --webpad            WebPad sofort einschalten (sonst im Systemmenü); headless in Echtzeit\n"
       "  --webpad-port <n>   Port des WebPads (Standard 8080, 0 = aus)\n"
@@ -82,6 +83,8 @@ int main(int argc, char** argv) {
       out = v; ++i;
     } else if (!std::strcmp(a, "--fuzz-input") && parseU32(v, n)) {
       pd::pc::config().fuzzInput = true; pd::pc::config().fuzzSeed = n; ++i;
+    } else if (!std::strcmp(a, "--fuzz-players") && parseU32(v, n) && n >= 1 && n <= 4) {
+      pd::pc::config().fuzzPlayers = int(n); ++i;
     } else if (!std::strcmp(a, "--data-dir") && v) {
       pd::pc::config().dataDir = v; ++i;
     } else if (!std::strcmp(a, "--webpad")) {

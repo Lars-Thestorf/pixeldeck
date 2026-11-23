@@ -11,6 +11,7 @@ struct SimConfig {
   bool headless = false;    // kein Fenster, virtuelle Uhr (läuft so schnell wie möglich)
   bool fuzzInput = false;   // zufällige Eingaben auf Slot 0 (Smoke-Tests)
   uint32_t fuzzSeed = 1;
+  int  fuzzPlayers = 1;     // Anzahl Zufallsgeräte (Slot 0 + Gamepads, die per A beitreten)
   std::string dataDir;      // Ablage für Storage; leer = Standardpfad
   int  webpadPort = 8080;   // HTTP/WebSocket-Port des WebPads, 0 = aus
   bool webpadForce = false; // --webpad: auch headless, dann mit echter Uhr

@@ -1,6 +1,6 @@
 # pixeldeck - Spezifikation
 
-Stand: 2026-11-22, Version 0.7 (Festlegungen aus M6 eingearbeitet: WebPad mit Access Point, Captive Portal, Protokoll, Controller-Seite, PC-Server; M5 Audio steht noch aus; Version 0.6: Festlegungen aus M4: Slots, Lobby, Profile, Highscores, Tastaturlayouts, Gamepads; Version 0.5: Festlegungen und Messwerte aus M3; Version 0.4: M1 und M2; Version 0.2: Registry per CMake, WebPad-Protokoll im Core und Profilwahl beim Join im laufenden Spiel bestätigt)
+Stand: 2026-11-22, Version 0.8 (Snake mit 1-4 Spielern und Powerup-Modus, Simulator-Option `--fuzz-players`; Version 0.7: Festlegungen aus M6 eingearbeitet: WebPad mit Access Point, Captive Portal, Protokoll, Controller-Seite, PC-Server; M5 Audio steht noch aus; Version 0.6: Festlegungen aus M4: Slots, Lobby, Profile, Highscores, Tastaturlayouts, Gamepads; Version 0.5: Festlegungen und Messwerte aus M3; Version 0.4: M1 und M2; Version 0.2: Registry per CMake, WebPad-Protokoll im Core und Profilwahl beim Join im laufenden Spiel bestätigt)
 
 pixeldeck ist ein kleines "Betriebssystem" mit Spielen für eine selbstgebaute Spielekonsole (ESP32 + 64x32 RGB-LED-Matrix). Derselbe C++-Code läuft nativ auf dem ESP32 und als Simulator am PC. Dieses Dokument beschreibt alles oberhalb der Hardware-Ansteuerung; die HAL wird hier nur als Schnittstelle spezifiziert.
 
@@ -412,7 +412,7 @@ OS-Daten (Profile, Scores, Einstellungen) liegen in reservierten Namensräumen o
 
 ## 9. Speicher
 
-- Statische **Arena** im `.bss`, Größe `PD_ARENA_SIZE` (Konfigurationswert, Startwert 64 KB, **seit M6 32 KB**: die Spiele brauchen max. 1,3 KB, das WLAN braucht den Heap).
+- Statische **Arena** im `.bss`, Größe `PD_ARENA_SIZE` (Konfigurationswert, Startwert 64 KB, **seit M6 32 KB**: die Spiele brauchen max. 3,9 KB (Snake mit 4 Schlangen, vorher 1,3 KB), das WLAN braucht den Heap).
 - Spielobjekt per Placement-new an den Anfang der Arena.
 - `ctx.alloc()` = Bump-Allocator auf dem Rest, nur in `init()`. Kein `free`.
 - Beim Beenden: Destruktor, Arena komplett verworfen. Keine Lecks und keine Fragmentierung zwischen Spielen.
@@ -746,7 +746,7 @@ Gnadenfrist von 1,5 s (Abschnitt 1.2), damit ist Punkt 4 erledigt.
 - **Power simulieren:** Tasten für Akku leer, lädt, Power-Taste (Shutdown).
 - **Zweites Tastaturlayout** als eigener Spieler (Pfeile vs. WASD), dazu SDL-Gamepads und Rumble. Umgesetzt (M4): Layout 1 liegt dafür auf der rechten Tastaturhälfte (Tabelle unten), Layout 2 links. Beide sind Geräte vom Typ `Keyboard` (ID 1 und 2); Layout 2 tritt wie ein Gamepad per A bei.
 - **SDL-Gamepads (M4):** bis 6, Hotplug. Belegung nach Position wie am Nintendo-Pad **[Annahme]**: rechte Aktionstaste = A, untere = B, obere = X, linke = Y; Schultertasten und Trigger (> 50 %) = L/R, Back = Select. Sticks mit Totzone **[Annahme]** ca. 25 %. Geräte-ID aus GUID und Seriennummer (bei gleichen Pads ohne Seriennummer zusätzlich die Reihenfolge), damit derselbe Controller seinen Slot zurückbekommt. Rumble über `SDL_RumbleGamepad`. Im Headless- und Fuzz-Modus gibt es nur Tastatur 1.
-- **Headless-Modus:** `--headless --ticks N --out frame.png`, für Smoke-Tests in CI. Ohne Fenster läuft eine virtuelle Uhr (so schnell wie möglich); die Tick-Messung ist dort ohne Aussage. `--fuzz-input <seed>` erzeugt zufällige Eingaben auf Slot 0. CTest startet jedes Spiel und den Launcher so; ein Test scheitert bei `[ERROR]` oder einer Heap-Warnung.
+- **Headless-Modus:** `--headless --ticks N --out frame.png`, für Smoke-Tests in CI. Ohne Fenster läuft eine virtuelle Uhr (so schnell wie möglich); die Tick-Messung ist dort ohne Aussage. `--fuzz-input <seed>` erzeugt zufällige Eingaben auf Slot 0; mit `--fuzz-players <n>` (1-4) kommen n-1 Zufalls-Gamepads dazu, die per A beitreten (ohne Start/Select). CTest startet jedes Spiel und den Launcher so, Snake zusätzlich mit 4 Spielern; ein Test scheitert bei `[ERROR]` oder einer Heap-Warnung.
 - **WebPad (M6):** einschalten im Systemmenü oder mit `--webpad` (nur dieser Lauf). Das Handy öffnet `http://<PC-IP>:8080/` im selben Netz; Port per `--webpad-port`. `--webpad` funktioniert auch headless, dann mit echter Uhr statt virtueller (Ende-zu-Ende-Tests mit einem WebSocket-Client).
 - **Heap-Hook:** meldet `operator new` während Spielcode läuft. Aufrufe des Spiels in OS-Dienste (Storage, Rumble) sind ausgenommen, weil dort allokiert werden darf.
 - Hänger: Warnung im Log nach 5 s. Absturz: normaler Prozess-Crash mit Debugger.
@@ -842,7 +842,10 @@ pixeldeck/
 | **M6 WebPad** | AP, Captive Portal, WebSocket-Protokoll, Controller-Seite, Rumble, auch am PC (umgesetzt vor M5) |
 
 Startspiele (eigene Designs, keine Nachbildungen bestehender Spiele):
-- **Snake** - 1P, Highscore
+- **Snake** - 1-4P. Vor dem Start Modus wählen (Links/Rechts, wird im Spielstand gemerkt):
+  - **KLASSIK**: nur Futter. Highscore nur allein im Klassik-Modus **[Annahme]**, damit Powerup- und Mehrspielerrunden die Liste nicht verzerren.
+  - **POWER**: zusätzlich alle 3-7 s ein Powerup (max. 2 gleichzeitig, liegt 10 s, blinkt vor dem Verschwinden), +2 Punkte, wirkt nur auf den Fresser: blau = langsamer (6 s, Zugintervall x1,5), gelb = schneller (6 s, x2/3; hebt "langsamer" auf und umgekehrt), weiß = unverwundbar (5 s: durch alle Körper hindurch, Wände führen auf die Gegenseite; andere sterben weiterhin an diesem Körper), violett = unsichtbar (6 s, nur der Kopf ist zu sehen, der Körper bleibt Hindernis). Restzeit als Leiste unter der Punktezahl. Werte sind **[Annahme]**, nach Spieltest anpassen.
+  - Ab 2 Spielern: feste Farben je Slot (grün, orange, cyan, pink), Startreihen abwechselnd von links und rechts, Countdown 2,5 s. Wand, Körper oder zwei Köpfe auf demselben Feld töten; Züge eines Ticks werden gemeinsam aufgelöst (Slot-Reihenfolge ohne Vorteil). Tote Körper bleiben 1 s als Hindernis. Letzter Überlebender gewinnt, Siege werden bis zum Moduswechsel gezählt; sterben alle gleichzeitig: unentschieden. Ab 3 Spielern liegen 2 Futter. Beitritt wirkt ab der nächsten Runde.
 - **Tennis** (`tennis`) - 1-2P; ohne zweiten Spieler steuert die CPU die rechte Seite. Erster mit 7 Punkten gewinnt.
 - **Fallblock-Spiel STAPEL** (`stapel`) - Zweierpaare farbiger Blöcke fallen in einen 6x10-Schacht; 3 oder mehr gleiche Farben waagerecht oder senkrecht lösen sich auf, Ketten zählen mehrfach. Highscore, Text, Spielstand (wird in `onShutdown` gesichert und beim nächsten Start fortgesetzt).
 - später ein **4-Spieler-Partyspiel** mit Lichtspuren als Zugpferd für das WebPad

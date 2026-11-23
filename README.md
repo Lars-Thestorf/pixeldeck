@@ -86,7 +86,7 @@ Weitere Befehle: `stick <lx> <ly> <rx> <ry> [ms]`, `hang` (Watchdog-Test), `cras
 
 | id | Inhalt |
 |---|---|
-| `snake` | Schlange, 1P, Highscore |
+| `snake` | Schlange, 1-4P; Modus KLASSIK (allein mit Highscore) oder POWER (Powerups: langsamer, schneller, unverwundbar, unsichtbar); ab 2P gewinnt, wer übrig bleibt |
 | `stapel` | Fallblock-Spiel mit Farbreihen, 1P, Spielstand |
 | `tennis` | Schläger und Ball, 1-2P (CPU als Gegner, zweiter Spieler per Join) |
 | `testbild` | Testseiten für Eingabe, Fonts, Grafik, Sprites |

@@ -35,8 +35,9 @@ struct State {
   uint16_t lastFrame[MW * MH] = {};
   uint64_t virtualUs = 0;        // Uhr im Headless-Modus
   uint32_t fuzzState = 1;
-  uint16_t fuzzButtons = 0;
-  int8_t fuzzAxes[4] = {};
+  static constexpr int kMaxFuzz = 4;  // Slot 0 + bis zu 3 Zufalls-Gamepads
+  uint16_t fuzzButtons[kMaxFuzz] = {};
+  int8_t fuzzAxes[kMaxFuzz][4] = {};
   struct Pad {
     SDL_Gamepad*   gp = nullptr;
     SDL_JoystickID jid = 0;
@@ -275,17 +276,34 @@ size_t poll(Device* out, size_t max) {
   d.connected = true;
   d.state = RawInput{0, 0, 0, 0, 0};
 
+  size_t nFuzz = 1;
   if (g.cfg.fuzzInput) {
+    // Slot-0-Gerät und mit --fuzz-players weitere Gamepads, die per A beitreten:
     // zufällig Buttons umschalten, Sticks gelegentlich neu setzen
-    if ((pd::pc::fuzzNext() & 7) == 0) g.fuzzButtons ^= uint16_t(1u << (pd::pc::fuzzNext() % 14));
-    if ((pd::pc::fuzzNext() & 31) == 0)
-      g.fuzzAxes[pd::pc::fuzzNext() % 4] = int8_t(int(pd::pc::fuzzNext() % 255) - 127);
-    d.state = RawInput{g.fuzzButtons, g.fuzzAxes[0], g.fuzzAxes[1], g.fuzzAxes[2], g.fuzzAxes[3]};
+    nFuzz = size_t(g.cfg.fuzzPlayers < 1 ? 1 : g.cfg.fuzzPlayers);
+    if (nFuzz > size_t(pd::pc::State::kMaxFuzz)) nFuzz = pd::pc::State::kMaxFuzz;
+    if (nFuzz > max) nFuzz = max;
+    for (size_t i = 0; i < nFuzz; ++i) {
+      uint16_t& b = g.fuzzButtons[i];
+      int8_t* ax = g.fuzzAxes[i];
+      if ((pd::pc::fuzzNext() & 7) == 0) b ^= uint16_t(1u << (pd::pc::fuzzNext() % 14));
+      if ((pd::pc::fuzzNext() & 31) == 0)
+        ax[pd::pc::fuzzNext() % 4] = int8_t(int(pd::pc::fuzzNext() % 255) - 127);
+      Device& f = out[i];
+      if (i > 0) {
+        f.id = 0x80000000u | uint32_t(i);
+        f.type = DeviceType::Gamepad;
+        std::snprintf(f.name, sizeof f.name, "FUZZ %u", unsigned(i));
+        f.connected = true;
+        b &= uint16_t(~(uint16_t(pd::Button::Start) | uint16_t(pd::Button::Select)));
+      }
+      f.state = RawInput{b, ax[0], ax[1], ax[2], ax[3]};
+    }
   }
-  if (!g.videoOk) return 1;
+  if (!g.videoOk) return nFuzz;
 
   pd::pc::handleEvents();
-  if (g.cfg.fuzzInput) return 1;
+  if (g.cfg.fuzzInput) return nFuzz;
 
   // Tastatur, zwei Layouts (SPEC 15). Scancodes = physische US-Position.
   const bool* k = SDL_GetKeyboardState(nullptr);
