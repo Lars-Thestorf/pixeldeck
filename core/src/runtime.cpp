@@ -224,6 +224,7 @@ void Runtime::openMenu() {
 void Runtime::closeMenu() {
   if (!menuOpen_) return;
   menuOpen_ = false;
+  setBrightnessLevel(settings_.brightnessLevel);  // QR-Ansicht kann sie vorübergehend ändern
   saveSettings(settings_);
 }
 

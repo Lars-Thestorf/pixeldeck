@@ -16,7 +16,8 @@ using namespace pd;
 namespace {
 constexpr uint16_t A = uint16_t(Button::A), DOWN = uint16_t(Button::Down),
                    START = uint16_t(Button::Start), SELECT = uint16_t(Button::Select),
-                   RIGHT = uint16_t(Button::Right);
+                   RIGHT = uint16_t(Button::Right), UP = uint16_t(Button::Up),
+                   X = uint16_t(Button::X), Y = uint16_t(Button::Y);
 
 os::RunOptions direct(uint32_t ticks) {
   os::RunOptions o;
@@ -168,6 +169,49 @@ TEST_CASE("Systemmenü: Weiter und Helligkeit werden gespeichert") {
   os::Settings s;
   REQUIRE(os::loadSettings(s));
   CHECK(s.brightnessLevel == 7);
+}
+
+TEST_CASE("Systemmenü: WebPad-Passwort nur nach Bestätigung, QR-Helligkeit vorübergehend") {
+  static bool confirm;
+  static char pwOn[9];
+  static uint8_t qrBrightness;
+  for (bool c : {false, true}) {
+    testhal::reset();
+    testhal::clearStorage();
+    testgame::stats = {};
+    confirm = c;
+    pwOn[0] = 0;
+    qrBrightness = 0;
+    testhal::onPoll = [](int f) {
+      uint16_t b = 0;
+      if (f >= 10 && f < 75) b = START | SELECT;  // Menü auf
+      // WEITER, BEENDEN, SPIELER, PROFILE, REKORDE, WEBPAD
+      if (f == 78 || f == 80 || f == 82 || f == 84 || f == 86) b = DOWN;
+      if (f == 90) b = A;                         // WebPad-Seite
+      if (f == 92) b = A;                         // einschalten (speichert)
+      if (f == 95) {
+        os::Settings s;
+        if (os::loadSettings(s)) std::memcpy(pwOn, s.apPass, sizeof pwOn);
+      }
+      if (f == 96) b = X;                                       // neues Passwort?
+      if (f == 98) b = confirm ? A : uint16_t(Button::B);       // ja / nein
+      if (f == 106) b = Y;                                      // QR-Ansicht
+      if (f == 108) b = UP;                                     // 6 -> 7
+      if (f == 110 || f == 112) b = DOWN;                       // -> 5
+      if (f == 115) qrBrightness = testhal::brightness;
+      if (f == 118) b = START;                                  // Menü zu
+      testhal::device.state.buttons = b;
+    };
+    CHECK(os::run(direct(160)) == 0);
+    REQUIRE(pwOn[0] != 0);
+    CHECK(qrBrightness == os::kBrightnessSteps[5]);
+    CHECK(testhal::brightness == os::kBrightnessSteps[6]);  // nach dem Schließen zurück
+    os::Settings s;
+    REQUIRE(os::loadSettings(s));
+    CHECK(s.brightnessLevel == 6);
+    CHECK(s.webpadOn == 1);  // B auf der Bestätigung hat die Seite nicht verlassen
+    CHECK((std::strcmp(s.apPass, pwOn) != 0) == c);
+  }
 }
 
 TEST_CASE("Abschalten: onShutdown, Einstellungen, shutdownReady (SPEC 14.3)") {

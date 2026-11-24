@@ -27,6 +27,7 @@ extern int shutdownReadyCalls;
 extern pd::hal::app::LastReset nextReset;  // wird beim nächsten lastReset() geliefert
 extern std::string activity;              // zuletzt per setActivity gemeldet
 // WebPad-Transport: Ereignisse an den Core, gesendete Nachrichten vom Core
+extern uint32_t seedCalls;              // Aufrufe von random::seed() seit reset()
 extern bool netStartOk;
 extern bool netRunning;
 extern std::vector<pd::hal::net::Event> netIn;

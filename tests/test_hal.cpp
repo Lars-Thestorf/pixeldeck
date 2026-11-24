@@ -30,6 +30,7 @@ pd::hal::power::PowerState power{};
 int shutdownReadyCalls = 0;
 pd::hal::app::LastReset nextReset{};
 std::string activity;
+uint32_t seedCalls = 0;
 bool netStartOk = true;
 bool netRunning = false;
 std::vector<pd::hal::net::Event> netIn;
@@ -88,6 +89,7 @@ void reset() {
   netRunning = false;
   netIn.clear();
   netOut.clear();
+  seedCalls = 0;
 }
 void clearStorage() { store.clear(); }
 
@@ -126,7 +128,7 @@ namespace log {
 void write(Level, const char*) {}
 }  // namespace log
 namespace random {
-uint32_t seed() { return 1234; }
+uint32_t seed() { return 1234 + 7919 * testhal::seedCalls++; }  // je Lauf reproduzierbar
 }  // namespace random
 namespace app {
 bool quitRequested() { return testhal::quit; }

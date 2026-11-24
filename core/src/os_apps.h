@@ -78,7 +78,8 @@ private:
   bool scConfirm_ = false;
   bool scLoaded_ = false;
   int  qrStep_ = 0;                   // QR-Ansicht: 0 WLAN, 1 Seite
-  uint32_t qrSince_ = 0;              // Tick des letzten Wechsels (automatisch alle 8 s)
+  int  qrLevel_ = 0;                  // QR-Ansicht: Helligkeitsstufe nur für diese Ansicht
+  bool pwConfirm_ = false;            // WebPad: neues Passwort bestätigen
   bool qrOk_ = false;
 };
 

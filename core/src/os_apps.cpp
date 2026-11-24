@@ -5,6 +5,7 @@
 #include <initializer_list>
 
 #include "pd/context.h"
+#include "pd/hal/display.h"
 #include "pd/hal/net.h"
 #include "pd/os/runtime.h"
 #include "qrcode.h"
@@ -200,7 +201,7 @@ void SystemMenu::enter(bool inGame) {
   sel_ = 0;
   page_ = Page::Main;
   plSwap_ = -1;
-  edConfirm_ = scConfirm_ = false;
+  edConfirm_ = scConfirm_ = pwConfirm_ = false;
 }
 
 void SystemMenu::tick(Context& ctx) {
@@ -540,19 +541,40 @@ void SystemMenu::tickScores(Context& ctx) {
   }
 }
 
-// WebPad (SPEC 13): A schaltet ein/aus, X erzeugt ein neues WLAN-Passwort, B zurück.
+// WebPad (SPEC 13): A schaltet ein/aus, X erzeugt ein neues WLAN-Passwort (mit Bestätigung),
+// Y QR-Ansicht, B zurück.
 void SystemMenu::tickWebPad(Context& ctx) {
   Gfx& g = ctx.gfx;
   Input& in = ctx.input;
   WebPad& wp = rt_.webpad();
+  const hal::net::Info info = wp.running() ? hal::net::info() : hal::net::Info{};
+
+  if (pwConfirm_) {
+    if (!wp.running() || !info.accessPoint) {
+      pwConfirm_ = false;
+    } else if (in.pressed(Button::A) || in.pressed(Button::B)) {
+      if (in.pressed(Button::A)) rt_.newWebPadPassword();
+      pwConfirm_ = false;
+      return;  // Seite zeichnet ab dem nächsten Tick neu
+    } else {
+      g.fillRect(0, 0, Gfx::W, Gfx::H, BG);
+      center(g, 2, rt_.settings().apPass, color::WHITE, Font::Large);
+      center(g, 13, "NEUES PW?", rgb(255, 60, 40), Font::Large);
+      center(g, 25, "A JA  B NEIN", TXT);
+      return;
+    }
+  }
+
   if (in.pressed(Button::B)) { page_ = Page::Main; return; }
   if (in.pressed(Button::A)) rt_.setWebPad(!wp.running());
-  const hal::net::Info info = wp.running() ? hal::net::info() : hal::net::Info{};
-  if (in.pressed(Button::X) && wp.running() && info.accessPoint) rt_.newWebPadPassword();
+  if (in.pressed(Button::X) && wp.running() && info.accessPoint) {
+    pwConfirm_ = true;
+    return;
+  }
   if (in.pressed(Button::Y) && wp.running()) {
     page_ = Page::WebPadQr;
     qrStep_ = info.accessPoint ? 0 : 1;  // am PC gibt es kein eigenes WLAN
-    qrSince_ = ctx.tick();
+    qrLevel_ = rt_.settings().brightnessLevel;
     encodeQr();
     return;
   }
@@ -601,21 +623,25 @@ void SystemMenu::encodeQr() {
 }
 
 // QR-Ansicht (SPEC 12.2): links der Code, rechts die Erklärung. Links/Rechts wechselt zwischen
-// WLAN und Seite, sonst automatisch alle 8 s; B oder Y zurück.
+// WLAN und Seite, Hoch/Runter stellt die Helligkeit nur für diese Ansicht ein, B oder Y zurück.
+// Beim Verlassen gilt wieder die eingestellte Helligkeit (Schließen des Menüs: Runtime::closeMenu).
 void SystemMenu::tickWebPadQr(Context& ctx) {
   Gfx& g = ctx.gfx;
   Input& in = ctx.input;
   if (!rt_.webpad().running() || in.pressed(Button::B) || in.pressed(Button::Y)) {
+    rt_.setBrightnessLevel(rt_.settings().brightnessLevel);
     page_ = Page::WebPad;
     return;
   }
   const bool ap = hal::net::info().accessPoint;
-  if (ap && (in.pressed(Button::Left) || in.pressed(Button::Right) ||
-             ctx.tick() - qrSince_ >= 8u * PD_TICK_HZ)) {
+  if (ap && (in.pressed(Button::Left) || in.pressed(Button::Right))) {
     qrStep_ ^= 1;
-    qrSince_ = ctx.tick();
     encodeQr();
   }
+  const int lvl = qrLevel_;
+  if (in.pressed(Button::Up) && qrLevel_ < kBrightnessLevels - 1) ++qrLevel_;
+  if (in.pressed(Button::Down) && qrLevel_ > 0) --qrLevel_;
+  if (qrLevel_ != lvl) hal::display::setBrightness(kBrightnessSteps[qrLevel_]);
 
   g.clear();
   if (!qrOk_) {
@@ -635,6 +661,10 @@ void SystemMenu::tickWebPadQr(Context& ctx) {
 
   const int tx = 34;
   if (ap) g.text(tx, 0, qrStep_ == 0 ? "1/2" : "2/2", DIM);
+  for (int b = 0; b < kBrightnessLevels; ++b) {  // Helligkeit dieser Ansicht
+    const int h = 1 + b * 4 / (kBrightnessLevels - 1);
+    g.vline(49 + 2 * b, 5 - h, h, b <= qrLevel_ ? TXT : DIM);
+  }
   if (qrStep_ == 0) {
     g.text(tx, 8, "WLAN", color::WHITE, Font::Large);
     g.text(tx, 18, "MIT", TXT);
