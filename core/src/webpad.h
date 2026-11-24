@@ -56,6 +56,7 @@ public:
   // Profil, mit dem das Handy spielen will (beim Beitritt), kGuest wenn unbekannt.
   uint8_t requestedProfile(uint32_t deviceId) const;
   bool rumble(uint32_t deviceId, uint16_t ms);
+  void langChanged();  // Sprache geändert: WELCOME mit neuer Sprache an alle Handys
   int  clientCount() const;  // Handys nach HELLO
 
   static bool isWebPadId(uint32_t id) { return (id & 0xC0000000u) == 0x40000000u; }
@@ -86,6 +87,7 @@ private:
   Client* alloc(hal::net::ClientId cid);
   void handle(Client& c, const uint8_t* d, size_t n);
   void sendProfiles(Client& c);
+  void sendWelcome(const Client& c);
   void send(const Client& c, const uint8_t* d, size_t n);
   void applyProfile(Client& c);   // gewünschtes Profil in den Slot übernehmen, wenn frei
   bool live(const Client& c) const;

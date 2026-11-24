@@ -154,11 +154,13 @@ private:
 
     if (state_ == State::Done) {
       const int w = score_[0] > score_[1] ? 0 : 1;
-      const char* who = w == 0 ? "P1 GEWINNT" : (human2 ? "P2 GEWINNT" : "CPU GEWINNT");
+      const char* who = w == 0 ? ctx.tr("P1 WINS", "P1 GEWINNT")
+                              : (human2 ? ctx.tr("P2 WINS", "P2 GEWINNT") : ctx.tr("CPU WINS", "CPU GEWINNT"));
       g.fillRect(4, 11, 56, 15, color::BLACK);
       g.rect(4, 11, 56, 15, COL_P[w]);
       g.text(32 - g.textWidth(who) / 2, 13, who, COL_P[w]);
-      if (timer_ > 60) g.text(32 - g.textWidth("A = NOCHMAL") / 2, 19, "A = NOCHMAL", color::GRAY);
+      const char* again = ctx.tr("A = AGAIN", "A = NOCHMAL");
+      if (timer_ > 60) g.text(32 - g.textWidth(again) / 2, 19, again, color::GRAY);
     }
   }
 

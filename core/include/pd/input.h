@@ -27,7 +27,7 @@ public:
   uint16_t buttons() const { return cur_; }  // Rohmaske aller gehaltenen Buttons
   Stick left() const { return left_; }
   Stick right() const { return right_; }
-  const char* name() const { return name_; }  // Profilname oder "GAST"
+  const char* name() const { return name_; }  // Profilname oder "GUEST"/"GAST"
   uint16_t color() const { return color_; }   // Profilfarbe
   void rumble(uint16_t ms);                   // No-Op, wenn das Gerät es nicht kann
 
@@ -37,7 +37,7 @@ private:
   uint16_t cur_ = 0, prev_ = 0;
   Stick left_{0, 0}, right_{0, 0};
   uint32_t deviceId_ = 0;
-  const char* name_ = "GAST";
+  const char* name_ = "GUEST";
   uint16_t color_ = 0xFFFF;
 };
 

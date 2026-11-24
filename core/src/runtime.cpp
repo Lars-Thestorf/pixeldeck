@@ -11,6 +11,7 @@
 #include "pd/hal/log.h"
 #include "pd/hal/random.h"
 #include "pd/hal/time.h"
+#include "lang_impl.h"
 #include "runtime_impl.h"
 #include "score_table.h"
 
@@ -22,6 +23,8 @@ using GameEntry = const GameInfo& (*)();
 extern const GameEntry kGames[];
 extern const size_t kGameCount;
 }  // namespace detail
+
+Lang g_lang = Lang::En;
 
 namespace {
 
@@ -102,6 +105,13 @@ void Runtime::setSlotProfile(int slot, uint8_t profileId) {
   }
   profiles_.remember(dev, profileId);
   saveProfiles();
+}
+
+void Runtime::setLang(Lang l) {
+  if (int(l) >= kLangCount || l == g_lang) return;
+  g_lang = l;
+  settings_.lang = uint8_t(l);
+  webpad_.langChanged();  // Handys stellen ihre Seite um
 }
 
 void Runtime::setWebPad(bool on) {
@@ -239,15 +249,15 @@ void Runtime::showResetNotice() {
   std::memcpy(id, r.gameId, sizeof id);
   id[sizeof id - 1] = 0;
   const GameInfo* g = id[0] ? findGame(id) : nullptr;
-  const char* name = g ? g->meta.name : (id[0] ? id : "SYSTEM");
+  const char* name = g ? gameName(g->meta) : (id[0] ? id : "SYSTEM");
   std::snprintf(notice_[0], sizeof notice_[0], "%s", name);
   for (char* c = notice_[0]; *c; ++c)
     if (*c >= 'a' && *c <= 'z') *c = char(*c - 'a' + 'A');
   if (r.cause == hal::app::ResetCause::Hang) {
-    std::snprintf(notice_[1], sizeof notice_[1], "HAT NICHT");
-    std::snprintf(notice_[2], sizeof notice_[2], "REAGIERT");
+    std::snprintf(notice_[1], sizeof notice_[1], "%s", tr("NOT", "HAT NICHT"));
+    std::snprintf(notice_[2], sizeof notice_[2], "%s", tr("RESPONDING", "REAGIERT"));
   } else {
-    std::snprintf(notice_[1], sizeof notice_[1], "ABGESTUERZT");
+    std::snprintf(notice_[1], sizeof notice_[1], "%s", tr("CRASHED", "ABGESTUERZT"));
     notice_[2][0] = 0;
   }
   noticeTicks_ = 5 * PD_TICK_HZ;
@@ -308,7 +318,8 @@ bool Runtime::tickGreeting() {
   const uint16_t c = profiles_.color(id);
   Gfx& g = gfx_;
   g.clear();
-  g.text((Gfx::W - g.textWidth("HALLO")) / 2, 4, "HALLO", rgb(200, 200, 200));
+  const char* hello = tr("HELLO", "HALLO");
+  g.text((Gfx::W - g.textWidth(hello)) / 2, 4, hello, rgb(200, 200, 200));
   if (g.textWidth(name, Font::Large) <= 62) g.text((Gfx::W - g.textWidth(name, Font::Large)) / 2, 12, name, c, Font::Large);
   else g.text((Gfx::W - g.textWidth(name)) / 2, 13, name, c);
   // Linie in Profilfarbe wächst von der Mitte nach außen
@@ -333,7 +344,8 @@ void Runtime::beginShutdown() {
   if (game_) endGame();  // ruft onShutdown() des Spiels
   saveSettings(settings_);
   gfx_.clear();
-  gfx_.text((Gfx::W - gfx_.textWidth("BYE", Font::Large)) / 2, 12, "BYE", color::WHITE, Font::Large);
+  const char* bye = tr("BYE", "TSCHUESS");
+  gfx_.text((Gfx::W - gfx_.textWidth(bye, Font::Large)) / 2, 12, bye, color::WHITE, Font::Large);
   hal::power::shutdownReady();
 }
 
@@ -379,11 +391,11 @@ void Runtime::handleSlotEvents() {
       }
       if (lost & bit) {
         logf(LogLevel::Info, "P%d getrennt, Slot reserviert", s + 1);
-        showOverlay(rgb(255, 60, 40), "P%d GETRENNT", s);
+        showOverlay(rgb(255, 60, 40), tr("P%d DISCONNECTED", "P%d GETRENNT"), s);
       }
       if (back & bit) {
         logf(LogLevel::Info, "P%d wieder verbunden", s + 1);
-        showOverlay(rgb(60, 220, 60), "P%d ZURUECK", s);
+        showOverlay(rgb(60, 220, 60), tr("P%d BACK", "P%d ZURUECK"), s);
       }
       if (expired & bit) logf(LogLevel::Info, "P%d freigegeben", s + 1);
       if ((lost | expired) & bit) {
@@ -445,7 +457,7 @@ void Runtime::tickPicker() {
   Gfx& g = gfx_;
   g.clear();
   char buf[32];
-  std::snprintf(buf, sizeof buf, "P%d: WER BIST DU?", s + 1);
+  std::snprintf(buf, sizeof buf, tr("P%d: WHO ARE YOU", "P%d: WER BIST DU?"), s + 1);
   g.text((Gfx::W - g.textWidth(buf)) / 2, 0, buf, color::WHITE);
   const uint8_t id = ids[pickSel_ < n ? pickSel_ : 0];
   const char* name = profiles_.name(id);
@@ -456,9 +468,11 @@ void Runtime::tickPicker() {
     g.text(0, 12, "<", color::GRAY);
     g.text(61, 12, ">", color::GRAY);
   }
-  const char* dev = inputSys_.deviceName(sl.deviceId);
+  char dev[24];
+  deviceLabel(inputSys_, sl.deviceId, sl.type, dev, sizeof dev);
   g.text((Gfx::W - g.textWidth(dev)) / 2, 21, dev, color::GRAY);
-  g.text((Gfx::W - g.textWidth("A OK  B ZURUECK")) / 2, 27, "A OK  B ZURUECK", rgb(60, 60, 60));
+  const char* help = tr("A OK  B BACK", "A OK  B ZURUECK");
+  g.text((Gfx::W - g.textWidth(help)) / 2, 27, help, rgb(60, 60, 60));
 }
 
 // Kurzmeldung oben einblenden; der überdeckte Streifen wird danach zurückgeschrieben,
@@ -550,6 +564,7 @@ int Runtime::run(const RunOptions& opts) {
   hal::display::init();
   settings_ = Settings{};
   loadSettings(settings_);
+  g_lang = Lang(settings_.lang);
   profiles_.load();
   inputSys_.reset();
   lobby_ = nullptr;

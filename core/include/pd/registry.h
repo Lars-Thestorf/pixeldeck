@@ -22,6 +22,7 @@ struct GameMeta {
   uint8_t     maxPlayers = 1;
   uint16_t    saveVersion = 1;
   bool        stickAsDpad = false;        // linken Stick zusätzlich als D-Pad melden
+  const char* nameDe = nullptr;           // deutscher Anzeigename, nullptr = wie name
 };
 
 struct GameInfo {

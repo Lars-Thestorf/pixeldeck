@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="de">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
@@ -64,10 +64,10 @@ input{font:inherit;font-size:calc(6*var(--vh,1vh));width:40vw;padding:calc(1*var
 <div class="c btn sh" id="bR" data-b="32">R</div>
 <div class="c btn sm" id="bSel" data-b="128">&minus;</div>
 <div class="c btn sm" id="bSta" data-b="64">+</div>
-<div class="c" id="st">VERBINDE &hellip;</div>
-<div class="c btn" id="gear" data-x="prof">PROFIL</div>
+<div class="c" id="st"></div>
+<div class="c btn" id="gear" data-x="prof" data-t="prof"></div>
 <div class="c" id="rtt"></div>
-<div class="c" id="hint">A DR&Uuml;CKEN ZUM MITSPIELEN</div>
+<div class="c" id="hint" data-t="hint"></div>
 <div class="c stick" id="ls" data-s="0"><div class="knob"></div></div>
 <div class="c stick" id="rs" data-s="1"><div class="knob"></div></div>
 <div class="c" id="dp" data-d="1"><div class="arm" id="aU"></div><div class="arm" id="aD"></div><div class="arm" id="aL"></div><div class="arm" id="aR"></div></div>
@@ -80,21 +80,21 @@ input{font:inherit;font-size:calc(6*var(--vh,1vh));width:40vw;padding:calc(1*var
 </div>
 
 <div class="ov" id="prof">
-<h1>WER SPIELT?</h1>
+<h1 data-t="who"></h1>
 <div id="plist"></div>
 <p id="phint"></p>
 </div>
 
 <div class="ov" id="new">
-<h1>NEUES PROFIL</h1>
+<h1 data-t="newp"></h1>
 <input id="nname" maxlength="8" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="NAME">
 <div id="cols"></div>
 <div id="err"></div>
-<div class="row"><div class="act" id="nback">ZUR&Uuml;CK</div><div class="act main" id="nok">ANLEGEN</div></div>
+<div class="row"><div class="act" id="nback" data-t="back"></div><div class="act main" id="nok" data-t="create"></div></div>
 </div>
 
-<div class="ov" id="msg"><h1 id="mt"></h1><p id="mp"></p><div class="act main" id="mbtn">NEU VERBINDEN</div></div>
-<div class="ov" id="rot"><h1>Bitte quer halten</h1><p>Dreht sich die Seite nicht (Anmeldefenster von iOS): Fenster schlie&szlig;en, im WLAN bleiben (&bdquo;Ohne Internet verwenden&ldquo;) und in Safari <b id="raddr"></b> &ouml;ffnen.</p></div>
+<div class="ov" id="msg"><h1 id="mt"></h1><p id="mp"></p><div class="act main" id="mbtn" data-t="recon"></div></div>
+<div class="ov" id="rot"><h1 data-t="rot"></h1><p><span data-t="rot1"></span> <b id="raddr"></b> <span data-t="rot2"></span></p></div>
 
 <script>
 "use strict";
@@ -104,6 +104,45 @@ var BIT = { A: 1, B: 2, X: 4, Y: 8, L: 16, R: 32, START: 64, SELECT: 128, UP: 25
 
 function sget(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
 function sset(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+
+// Sprache: kommt von der Konsole (WELCOME, SPEC 13.2); bis dahin die zuletzt gemerkte,
+// sonst die des Browsers
+var TXT = {
+en: {
+prof: "PROFILE", hint: "PRESS A TO JOIN", who: "WHO'S PLAYING?", newp: "NEW PROFILE", back: "BACK",
+create: "CREATE", recon: "RECONNECT", rot: "Please turn sideways",
+rot1: "Page does not rotate (iOS sign-in window): close the window, stay on the Wi-Fi (\u201cUse without Internet\u201d) and open",
+rot2: "in Safari.",
+conn: "CONNECTING \u2026", guest: "GUEST", add: "+ NEW", lag: "LAG ",
+noname: "Please enter a name.", notmade: "Not created: name empty or already 16 profiles.",
+full: ["Console full", "Too many phones connected."], ver: ["New version", "Please reload the page."],
+elsewhere: ["Connected elsewhere", "This phone is playing in another tab."], rej: ["Rejected", ""],
+phint: "Profiles in use play as guest. Address: ", ios: ". Full screen on iPhone: Share \u2192 Add to Home Screen"
+},
+de: {
+prof: "PROFIL", hint: "A DR\u00dcCKEN ZUM MITSPIELEN", who: "WER SPIELT?", newp: "NEUES PROFIL", back: "ZUR\u00dcCK",
+create: "ANLEGEN", recon: "NEU VERBINDEN", rot: "Bitte quer halten",
+rot1: "Dreht sich die Seite nicht (Anmeldefenster von iOS): Fenster schlie\u00dfen, im WLAN bleiben (\u201eOhne Internet verwenden\u201c) und in Safari",
+rot2: "\u00f6ffnen.",
+conn: "VERBINDE \u2026", guest: "GAST", add: "+ NEU", lag: "HAKT ",
+noname: "Bitte einen Namen eingeben.", notmade: "Nicht angelegt: Name leer oder schon 16 Profile.",
+full: ["Konsole voll", "Zu viele Handys verbunden."], ver: ["Neue Version", "Bitte die Seite neu laden."],
+elsewhere: ["Anderswo verbunden", "Dieses Handy spielt gerade in einem anderen Tab."], rej: ["Abgelehnt", ""],
+phint: "Belegte Profile spielen als Gast. Adresse: ", ios: ". Vollbild auf dem iPhone: Teilen \u2192 Zum Home-Bildschirm"
+}
+};
+var lang = sget("pd_lang");
+if (lang !== "en" && lang !== "de") lang = /^de/i.test(navigator.language || "") ? "de" : "en";
+function L(k) { return TXT[lang][k]; }
+function applyLang() {
+document.documentElement.lang = lang;
+Array.prototype.forEach.call(document.querySelectorAll("[data-t]"), function (e) { e.textContent = L(e.getAttribute("data-t")); });
+}
+function setLang(l) {
+if (l === lang) return;
+lang = l; sset("pd_lang", l); applyLang(); setStatus(); showRtt();
+if ($("prof").classList.contains("show")) showProfiles();
+}
 
 // Token: stabile Geräte-ID dieses Browsers (SPEC 6.3)
 var token = sget("pd_tok");
@@ -147,14 +186,15 @@ var r = (c >> 11) & 31, g = (c >> 5) & 63, b = c & 31;
 return "rgb(" + Math.round(r * 255 / 31) + "," + Math.round(g * 255 / 63) + "," + Math.round(b * 255 / 31) + ")";
 }
 function profileById(id) { for (var i = 0; i < profiles.length; i++) if (profiles[i].id === id) return profiles[i]; return null; }
-function pname(id) { var p = profileById(id); return p ? p.name : "GAST"; }
+function pname(id) { var p = profileById(id); return p ? p.name : L("guest"); }
 function pcolor(id) { var p = profileById(id); return p && palette[p.color] ? palette[p.color] : "#fff"; }
 
 function onMsg(d) {
 switch (d[0]) {
-case 0x81: // WELCOME: Version, Farbpalette
+case 0x81: // WELCOME: Version, Farbpalette, Sprache (0 en, 1 de)
 palette = [];
 for (var i = 0; i < d[2]; i++) palette.push(rgb565(d[3 + 2 * i] | (d[4 + 2 * i] << 8)));
+if (d.length > 3 + 2 * d[2]) setLang(d[3 + 2 * d[2]] === 1 ? "de" : "en");
 break;
 case 0x82: // SLOT
 slot = d[1]; curProfile = d[2]; setStatus();
@@ -194,8 +234,8 @@ break;
 }
 }
 function reject(r) {
-if (r === 4) { $("err").textContent = "Nicht angelegt: Name leer oder schon 16 Profile."; return; }
-var t = { 1: ["Konsole voll", "Zu viele Handys verbunden."], 2: ["Neue Version", "Bitte die Seite neu laden."], 3: ["Anderswo verbunden", "Dieses Handy spielt gerade in einem anderen Tab."] }[r] || ["Abgelehnt", ""];
+if (r === 4) { $("err").textContent = L("notmade"); return; }
+var t = L({ 1: "full", 2: "ver", 3: "elsewhere" }[r] || "rej");
 noReconnect = true;
 $("mt").textContent = t[0]; $("mp").textContent = t[1]; show("msg");
 }
@@ -206,7 +246,7 @@ if (ws) { try { ws.close(); } catch (e) {} } else connect();
 
 function setStatus() {
 var st = $("st");
-if (!connected) { st.textContent = "VERBINDE …"; st.style.background = "#222"; st.style.color = "#888"; $("hint").style.display = "none"; return; }
+if (!connected) { st.textContent = L("conn"); st.style.background = "#222"; st.style.color = "#888"; $("hint").style.display = "none"; return; }
 var joined = slot !== GUEST;
 st.textContent = (joined ? "P" + (slot + 1) + " " : "") + pname(curProfile);
 st.style.background = joined ? pcolor(curProfile) : "#222";
@@ -218,13 +258,14 @@ $("hint").style.display = joined ? "none" : "block";
 function showRtt() {
 var e = $("rtt"), late = connected && Date.now() - lastPong > 1500;
 e.className = late ? "c bad" : "c";
-e.textContent = !connected ? "" : late ? "HAKT " + ((Date.now() - lastPong) / 1000).toFixed(1) + " s" : (rtt >= 0 ? rtt + " ms" : "");
+e.textContent = !connected ? "" : late ? L("lag") + ((Date.now() - lastPong) / 1000).toFixed(1) + " s" : (rtt >= 0 ? rtt + " ms" : "");
 }
 setInterval(function () {
 if (connected) { pingSeq = (pingSeq + 1) & 0xFFFF; pingAt = Date.now(); send([5, pingSeq & 255, pingSeq >> 8]); }
 showRtt();
 }, 500);
 $("raddr").textContent = "http://" + location.host;
+applyLang();
 
 document.addEventListener("pointerup", goFull, true);
 document.addEventListener("click", goFull, true);
@@ -256,14 +297,13 @@ return b;
 function showProfiles() {
 var l = $("plist");
 l.textContent = "";
-l.appendChild(item("GAST", "#fff", wantProfile === GUEST ? "cur" : "", function () { choose(GUEST); }));
+l.appendChild(item(L("guest"), "#fff", wantProfile === GUEST ? "cur" : "", function () { choose(GUEST); }));
 profiles.forEach(function (p) {
 l.appendChild(item(p.name, palette[p.color], p.id === wantProfile ? "cur" : "", function () { choose(p.id); }));
 });
-if (profiles.length < 16) l.appendChild(item("+ NEU", null, "", showNew));
+if (profiles.length < 16) l.appendChild(item(L("add"), null, "", showNew));
 var noFs = !(document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen);
-$("phint").textContent = "Belegte Profile spielen als Gast. Adresse: http://" + location.host +
-(noFs && !navigator.standalone ? ". Vollbild auf dem iPhone: Teilen \u2192 Zum Home-Bildschirm" : "");
+$("phint").textContent = L("phint") + "http://" + location.host + (noFs && !navigator.standalone ? L("ios") : "");
 show("prof");
 }
 function showNew() {
@@ -287,7 +327,7 @@ if (v !== this.value) this.value = v;
 };
 $("nok").onclick = function () {
 var v = $("nname").value.toUpperCase().replace(/[^A-Z0-9 \-]/g, "").trim();
-if (!v) { $("err").textContent = "Bitte einen Namen eingeben."; return; }
+if (!v) { $("err").textContent = L("noname"); return; }
 var m = [3];
 for (var i = 0; i < 8; i++) m.push(i < v.length ? v.charCodeAt(i) : 0);
 m.push(newColor);

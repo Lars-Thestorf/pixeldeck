@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "lang_impl.h"
 #include "pd/hal/random.h"
 #include "pd/os/runtime.h"
 #include "profiles.h"
@@ -204,15 +205,7 @@ void WebPad::handle(Client& c, const uint8_t* d, size_t n) {
       c.lastSeen = tick_;
       c.sentSlot = c.sentProfile = 0xFE;
       c.revSent = false;
-      uint8_t m[3 + 2 * kProfileColors];
-      m[0] = WELCOME;
-      m[1] = kVersion;
-      m[2] = kProfileColors;
-      for (int i = 0; i < kProfileColors; ++i) {
-        m[3 + 2 * i] = uint8_t(kProfileColor[i] & 0xFF);
-        m[4 + 2 * i] = uint8_t(kProfileColor[i] >> 8);
-      }
-      send(c, m, sizeof m);
+      sendWelcome(c);
       if (first)
         logf(LogLevel::Info, "WebPad %08x verbunden (%s, Verbindung %u)", unsigned(id),
              pr.name(c.profile), unsigned(c.cid));
@@ -340,6 +333,26 @@ void WebPad::sendProfiles(Client& c) {
   send(c, m, k);
   c.sentRev = pr.revision();
   c.revSent = true;
+}
+
+// WELCOME: Version, Palette und (seit SPEC 0.10) die Sprache als letztes Byte
+void WebPad::sendWelcome(const Client& c) {
+  uint8_t m[4 + 2 * kProfileColors];
+  m[0] = WELCOME;
+  m[1] = kVersion;
+  m[2] = kProfileColors;
+  for (int i = 0; i < kProfileColors; ++i) {
+    m[3 + 2 * i] = uint8_t(kProfileColor[i] & 0xFF);
+    m[4 + 2 * i] = uint8_t(kProfileColor[i] >> 8);
+  }
+  m[3 + 2 * kProfileColors] = uint8_t(g_lang);
+  send(c, m, sizeof m);
+}
+
+void WebPad::langChanged() {
+  if (!running_) return;
+  for (const Client& c : clients_)
+    if (c.used && c.hello && !c.replaced) sendWelcome(c);
 }
 
 void WebPad::sync() {

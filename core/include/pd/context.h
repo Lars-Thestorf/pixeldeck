@@ -5,6 +5,7 @@
 #include "audio.h"
 #include "gfx.h"
 #include "input.h"
+#include "lang.h"
 #include "scores.h"
 #include "storage.h"
 
@@ -34,6 +35,10 @@ public:
   void*    alloc(size_t size, size_t align = alignof(std::max_align_t));
 
   void     log(const char* fmt, ...) PD_PRINTF_FMT(2, 3);
+
+  // Eingestellte Sprache (SPEC 12.4). tr() wählt den passenden von zwei Texten.
+  Lang        lang() const;
+  const char* tr(const char* en, const char* de) const { return lang() == Lang::De ? de : en; }
 
   Context(Gfx& g, Input& i, Audio& a, Storage& s, Scores& sc)
       : gfx(g), input(i), audio(a), storage(s), scores(sc) {}

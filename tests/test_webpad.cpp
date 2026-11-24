@@ -1,6 +1,7 @@
 // M6: WebPad-Protokoll im Core (SPEC 13) gegen den Test-Transport der Test-HAL
 #include <doctest.h>
 
+#include <cstddef>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -8,6 +9,7 @@
 #include "pd/hal/storage.h"
 #include "pd/input.h"
 #include "pd/os/runtime.h"
+#include "lang_impl.h"
 #include "profiles.h"
 #include "score_table.h"
 #include "settings.h"
@@ -81,7 +83,8 @@ TEST_CASE("WebPad: HELLO, Beitritt per A mit Profil vom Handy (SPEC 13.2, 7.1)")
   CHECK(testhal::netRunning == false);  // run() stoppt das Netz am Ende
 
   const auto w = lastOf(5, WebPad::WELCOME);
-  REQUIRE(w.size() == 3 + 2 * os::kProfileColors);
+  REQUIRE(w.size() == 4 + 2 * os::kProfileColors);
+  CHECK(w.back() == uint8_t(Lang::En));  // Sprache als letztes Byte (Vorgabe Englisch)
   CHECK(w[1] == WebPad::kVersion);
   CHECK(w[2] == os::kProfileColors);
   CHECK((w[3] | (w[4] << 8)) == os::kProfileColor[0]);
@@ -235,6 +238,64 @@ TEST_CASE("WebPad: Geräte-ID aus dem Token, Rumble-Weiterleitung") {
   CHECK_FALSE(os::webpadRumble(1, 100));
 }
 
+TEST_CASE("Einstellungen: Version 2 wird übernommen, Sprache Englisch") {
+  testhal::reset();
+  testhal::clearStorage();
+  os::Settings v2;
+  v2.version = 2;
+  v2.brightnessLevel = 2;
+  v2.webpadOn = 1;
+  std::memcpy(v2.apSuffix, "BEEF", 5);
+  std::memcpy(v2.apPass, "12345678", 9);
+  REQUIRE(hal::storage::save("os", "settings", &v2, offsetof(os::Settings, lang)));
+  os::Settings s;
+  REQUIRE(os::loadSettings(s));
+  CHECK(s.version == 3);
+  CHECK(s.brightnessLevel == 2);
+  CHECK(s.webpadOn == 1);
+  CHECK(std::string(s.apPass) == "12345678");
+  CHECK(s.lang == uint8_t(Lang::En));
+}
+
+TEST_CASE("Sprache: Systemmenü schaltet um, gespeichert, Handys bekommen WELCOME (SPEC 12.4)") {
+  testhal::reset();
+  testhal::clearStorage();
+  enableWebPad();
+  testgame::stats = {};
+  testhal::onPoll = [](int f) {
+    uint16_t b = 0;
+    if (f == 2) {
+      testhal::netOpen(5);
+      testhal::netMsg(5, hello(10, os::kGuest));
+    }
+    if (f > 2 && f % 10 == 0) testhal::netMsg(5, state(0));  // Heartbeat
+    if (f >= 10 && f < 75) b = uint16_t(Button::Start) | uint16_t(Button::Select);  // Menü auf
+    // WEITER, BEENDEN, SPIELER, PROFILE, REKORDE, WEBPAD, HELL, ENGLISH
+    if (f >= 78 && f <= 90 && f % 2 == 0) b = uint16_t(Button::Down);
+    if (f == 94) b = uint16_t(Button::Right);  // -> DEUTSCH
+    if (f == 96) CHECK(os::g_lang == Lang::De);
+    if (f == 98) b = uint16_t(Button::B);      // schließen, speichert
+    testhal::device.state.buttons = b;
+  };
+  CHECK(os::run(direct("testgame", 140)) == 0);
+  const auto w = lastOf(5, WebPad::WELCOME);
+  REQUIRE(w.size() == 4 + 2 * os::kProfileColors);
+  CHECK(w.back() == uint8_t(Lang::De));
+  os::Settings s;
+  REQUIRE(os::loadSettings(s));
+  CHECK(s.lang == uint8_t(Lang::De));
+  os::Profiles p;
+  CHECK(std::string(p.name(os::kGuest)) == "GAST");
+
+  // nächster Start übernimmt die Sprache aus den Einstellungen
+  os::g_lang = Lang::En;
+  testhal::reset();
+  testhal::onPoll = nullptr;
+  CHECK(os::run(direct("testgame", 5)) == 0);
+  CHECK(os::g_lang == Lang::De);
+  os::g_lang = Lang::En;  // andere Tests erwarten die Vorgabe
+}
+
 TEST_CASE("Einstellungen: Version 1 wird übernommen") {
   testhal::reset();
   testhal::clearStorage();
@@ -242,7 +303,7 @@ TEST_CASE("Einstellungen: Version 1 wird übernommen") {
   REQUIRE(hal::storage::save("os", "settings", &v1, sizeof v1));
   os::Settings s;
   REQUIRE(os::loadSettings(s));
-  CHECK(s.version == 2);
+  CHECK(s.version == 3);
   CHECK(s.brightnessLevel == 3);
   CHECK(std::string(s.lastGame) == "snake");
   CHECK(s.webpadOn == 0);

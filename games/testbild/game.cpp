@@ -169,7 +169,7 @@ private:
     g.blit(kBlob.frame(fr), sx_ >> 4, sy_ >> 4, flip_);
     g.blit(kIcon, 1, 1);
     g.text(19, 1, "A/B FLIP", DIM);
-    g.text(19, 7, "X FUNKEN", DIM);
+    g.text(19, 7, ctx.tr("X SPARKS", "X FUNKEN"), DIM);
   }
 
   void spawn(Context& ctx, int x, int y) {
@@ -201,11 +201,12 @@ private:
 
 PD_REGISTER_GAME(Testbild, {
   .id          = "testbild",
-  .name        = "TESTBILD",
+  .name        = "TESTCARD",
   .icon        = kIcon,
   .scoreMode   = ScoreMode::None,
   .minPlayers  = 1,
   .maxPlayers  = 1,
   .saveVersion = 1,
   .stickAsDpad = false,
+  .nameDe      = "TESTBILD",
 })

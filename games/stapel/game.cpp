@@ -330,7 +330,7 @@ private:
     drawCell(g, 58, 2, kColors[next_[1]]);
 
     char buf[16];
-    g.text(HUD, 1, "PUNKTE", LABEL);
+    g.text(HUD, 1, ctx.tr("SCORE", "PUNKTE"), LABEL);
     std::snprintf(buf, sizeof buf, "%ld", long(score_));
     g.text(HUD, 7, buf, color::WHITE);
     std::snprintf(buf, sizeof buf, "LV %d", level());
@@ -338,15 +338,15 @@ private:
 
     if (chainShow_ > 0) {
       --chainShow_;
-      std::snprintf(buf, sizeof buf, "KETTE x%d", lastChain_);
+      std::snprintf(buf, sizeof buf, "%s x%d", ctx.tr("CHAIN", "KETTE"), lastChain_);
       g.text(HUD, 21, buf, color::YELLOW);
     }
     switch (state_) {
       case State::Ready: g.text(HUD, 27, "A = START", color::YELLOW); break;
-      case State::Resume: g.text(HUD, 27, "A = WEITER", color::YELLOW); break;
+      case State::Resume: g.text(HUD, 27, ctx.tr("A = RESUME", "A = WEITER"), color::YELLOW); break;
       case State::Over:
-        g.text(HUD, 21, "ENDE", color::RED);
-        if (timer_ > 60) g.text(HUD, 27, "A = NEU", color::GRAY);
+        g.text(HUD, 21, ctx.tr("GAME OVER", "ENDE"), color::RED);
+        if (timer_ > 60) g.text(HUD, 27, ctx.tr("A = NEW", "A = NEU"), color::GRAY);
         break;
       default: break;
     }
@@ -367,11 +367,12 @@ private:
 
 PD_REGISTER_GAME(Stapel, {
   .id          = "stapel",
-  .name        = "STAPEL",
+  .name        = "STACK",
   .icon        = assets::icon,
   .scoreMode   = ScoreMode::Higher,
   .minPlayers  = 1,
   .maxPlayers  = 1,
   .saveVersion = 1,
   .stickAsDpad = true,
+  .nameDe      = "STAPEL",
 })

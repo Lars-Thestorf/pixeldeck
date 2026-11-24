@@ -8,6 +8,7 @@
 #include "game.h"
 #include "gfx.h"
 #include "input.h"
+#include "lang.h"
 #include "registry.h"
 #include "scores.h"
 #include "sprite.h"

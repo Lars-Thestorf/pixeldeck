@@ -25,6 +25,7 @@ public:
   Settings& settings() { return settings_; }
   const hal::power::PowerState& power() const { return power_; }
   void setBrightnessLevel(int level);
+  void setLang(Lang l);  // gespeichert beim Schließen des Menüs
 
   // Spieler, Profile, Highscores (SPEC 6.3, 7)
   InputSystem& inputSys() { return inputSys_; }

@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "lang_impl.h"
 #include "pd/hal/storage.h"
 
 namespace pd::os {
@@ -57,7 +58,7 @@ int ScoreTable::insert(ScoreMode mode, int32_t score, uint8_t profileId, const c
   s = ScoreEntry{};
   s.score = score;
   s.profileId = profileId;
-  std::snprintf(s.name, sizeof s.name, "%s", name ? name : "GAST");
+  std::snprintf(s.name, sizeof s.name, "%s", name ? name : tr("GUEST", "GAST"));
   return pos;
 }
 

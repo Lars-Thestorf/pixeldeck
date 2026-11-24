@@ -4,12 +4,15 @@
 #include <cstring>
 
 #include "pd/hal/storage.h"
+#include "pd/lang.h"
 
 namespace pd::os {
 
 namespace {
-// Version 1 (bis M5) endet vor webpadOn; die Felder davor sind unverändert.
-constexpr size_t kSizeV1 = offsetof(Settings, webpadOn);
+// Ältere Versionen sind Präfixe der aktuellen: Version 1 (bis M5) endet vor webpadOn,
+// Version 2 (M6) vor lang. Neue Felder bekommen beim Laden ihre Vorgabe.
+constexpr size_t kOldSize[] = {0, offsetof(Settings, webpadOn), offsetof(Settings, lang)};
+constexpr uint8_t kOldVersions = uint8_t(sizeof kOldSize / sizeof kOldSize[0]);
 
 bool validAp(const Settings& s) {
   for (int i = 0; i < 4; ++i) {
@@ -26,10 +29,11 @@ bool loadSettings(Settings& s) {
   Settings tmp;
   size_t got = 0;
   if (!hal::storage::load("os", "settings", &tmp, sizeof tmp, &got)) return false;
-  if (got == kSizeV1 && tmp.version == 1) {
+  if (tmp.version >= 1 && tmp.version < kOldVersions && got == kOldSize[tmp.version]) {
     const Settings def;  // neue Felder auf Vorgabe
-    std::memcpy(reinterpret_cast<uint8_t*>(&tmp) + kSizeV1,
-                reinterpret_cast<const uint8_t*>(&def) + kSizeV1, sizeof tmp - kSizeV1);
+    const size_t old = kOldSize[tmp.version];
+    std::memcpy(reinterpret_cast<uint8_t*>(&tmp) + old,
+                reinterpret_cast<const uint8_t*>(&def) + old, sizeof tmp - old);
     tmp.version = def.version;
   } else if (got != sizeof tmp || tmp.version != Settings{}.version) {
     return false;
@@ -37,6 +41,7 @@ bool loadSettings(Settings& s) {
   if (tmp.brightnessLevel >= kBrightnessLevels) tmp.brightnessLevel = Settings{}.brightnessLevel;
   tmp.lastGame[sizeof tmp.lastGame - 1] = 0;
   tmp.webpadOn = tmp.webpadOn ? 1 : 0;
+  if (tmp.lang >= kLangCount) tmp.lang = 0;
   if (!validAp(tmp)) {
     tmp.apSuffix[0] = 0;
     tmp.apPass[0] = 0;

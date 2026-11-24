@@ -2,6 +2,7 @@
 
 #include <cstring>
 
+#include "lang_impl.h"
 #include "os_call.h"
 #include "profiles.h"
 #include "webpad.h"
@@ -127,7 +128,7 @@ const char* InputSystem::deviceName(uint32_t id) const {
 }
 
 void InputSystem::fill(Player& p, const Dev* d, bool sad, uint8_t profileId) const {
-  p.name_ = profiles_ ? profiles_->name(profileId) : "GAST";
+  p.name_ = profiles_ ? profiles_->name(profileId) : tr("GUEST", "GAST");
   p.color_ = profiles_ ? profiles_->color(profileId) : kGuestColor;
   if (!d || !d->live) {
     p.connected_ = false;

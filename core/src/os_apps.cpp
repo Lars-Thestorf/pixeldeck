@@ -8,6 +8,7 @@
 #include "pd/hal/display.h"
 #include "pd/hal/net.h"
 #include "pd/os/runtime.h"
+#include "lang_impl.h"
 #include "qrcode.h"
 #include "runtime_impl.h"
 #include "score_table.h"
@@ -28,8 +29,8 @@ QrCode g_qr;          // WebPad-QR-Ansicht, ca. 1,1 KB
 
 const char* deviceTag(hal::input::DeviceType t) {
   switch (t) {
-    case hal::input::DeviceType::Builtin: return "KON";
-    case hal::input::DeviceType::Keyboard: return "TAS";
+    case hal::input::DeviceType::Builtin: return tr("CON", "KON");
+    case hal::input::DeviceType::Keyboard: return tr("KEY", "TAS");
     case hal::input::DeviceType::Gamepad: return "PAD";
     case hal::input::DeviceType::WebPad: return "WEB";
   }
@@ -57,7 +58,25 @@ uint8_t cycleProfile(Runtime& rt, int slot, int dir) {
 }
 
 bool hasScores(const GameMeta& m) { return m.scoreMode != ScoreMode::None; }
+
+// Namenskopie eines Highscores; Gast-Einträge in der eingestellten Sprache
+const char* scoreName(const ScoreEntry& e) { return e.profileId == kGuest ? tr("GUEST", "GAST") : e.name; }
+
+const char* yesNo() { return tr("A YES  B NO", "A JA  B NEIN"); }
 }  // namespace
+
+void deviceLabel(const InputSystem& is, uint32_t deviceId, hal::input::DeviceType type, char* out,
+                 size_t n) {
+  const char* hal = is.deviceName(deviceId);
+  if (type == hal::input::DeviceType::Builtin) {
+    std::snprintf(out, n, "%s", tr("CONSOLE", "KONSOLE"));
+  } else if (type == hal::input::DeviceType::Keyboard) {
+    const char* num = std::strrchr(hal, ' ');  // HAL-Name "TASTATUR 1": Nummer übernehmen
+    std::snprintf(out, n, "%s%s", tr("KEYBOARD", "TASTATUR"), num ? num : "");
+  } else {
+    std::snprintf(out, n, "%s", hal);
+  }
+}
 
 // --- Launcher (SPEC 12.1) -------------------------------------------------------
 
@@ -78,7 +97,7 @@ void Launcher::loadRecord() {
   if (!hasScores(m) || !g_scores.load(m.id) || g_scores.count == 0) return;
   recValid_ = true;
   recScore_ = g_scores.e[0].score;
-  std::memcpy(recName_, g_scores.e[0].name, sizeof recName_);
+  std::snprintf(recName_, sizeof recName_, "%s", scoreName(g_scores.e[0]));
 }
 
 void Launcher::tick(Context& ctx) {
@@ -89,6 +108,8 @@ void Launcher::tick(Context& ctx) {
   if (in.pressed(Button::Start)) rt_.requestMenu(true);
 
   // Statuszeile: WebPad, Akku, belegte Slots als farbige Punkte
+  if (recFor_ >= 0 && recLang_ != g_lang) recFor_ = -1;  // Gastname nach Sprachwechsel
+  recLang_ = g_lang;
   if (rt_.webpad().running())
     g.text(39, 0, "W", rt_.webpad().clientCount() > 0 ? rgb(0, 220, 255) : rgb(40, 80, 200));
   const hal::power::PowerState& pw = rt_.power();
@@ -111,7 +132,7 @@ void Launcher::tick(Context& ctx) {
 
   const int n = int(gameCount());
   if (n == 0) {
-    g.text(4, 12, "KEINE SPIELE", TXT);
+    center(g, 12, tr("NO GAMES", "KEINE SPIELE"), TXT);
     return;
   }
 
@@ -134,17 +155,20 @@ void Launcher::tick(Context& ctx) {
   g.blit(m.icon, 5 + ox, 9);
 
   const int tx = 24 + ox;
-  if (g.textWidth(m.name, Font::Large) <= 38) g.text(tx, 9, m.name, color::WHITE, Font::Large);
-  else g.text(tx, 10, m.name, color::WHITE);
+  const char* name = gameName(m);
+  if (g.textWidth(name, Font::Large) <= 38) g.text(tx, 9, name, color::WHITE, Font::Large);
+  else g.text(tx, 10, name, color::WHITE);
 
-  if (m.minPlayers == m.maxPlayers) std::snprintf(buf, sizeof buf, "%uP", unsigned(m.maxPlayers));
-  else std::snprintf(buf, sizeof buf, "%u-%uP", unsigned(m.minPlayers), unsigned(m.maxPlayers));
+  // Spielerzahl: "1-4P" bzw. "1-4 SP"
+  const char* pl = tr("P", " SP");
+  if (m.minPlayers == m.maxPlayers) std::snprintf(buf, sizeof buf, "%u%s", unsigned(m.maxPlayers), pl);
+  else std::snprintf(buf, sizeof buf, "%u-%u%s", unsigned(m.minPlayers), unsigned(m.maxPlayers), pl);
   g.text(tx, 19, buf, TXT);
 
   if (hasScores(m)) {
     loadRecord();
     if (!recValid_) {
-      g.text(tx, 25, "REK ---", DIM);
+      g.text(tx, 25, tr("BEST ---", "REK ---"), DIM);
     } else {
       // Rekord und Profilname (Namenskopie), Name nur, wenn er noch passt
       std::snprintf(buf, sizeof buf, "%d", int(recScore_));
@@ -170,9 +194,10 @@ void Lobby::tick(Context& ctx) {
   const int have = is.presentCount(m.maxPlayers);
   if (have >= m.minPlayers) rt_.requestStart(gi);
 
-  if (g.textWidth(m.name, Font::Large) <= 62) center(g, 1, m.name, color::WHITE, Font::Large);
-  else center(g, 2, m.name, color::WHITE);
-  center(g, 10, "A: MITSPIELEN", (ctx.tick() / 30) % 2 ? SEL : TXT);
+  const char* name = gameName(m);
+  if (g.textWidth(name, Font::Large) <= 62) center(g, 1, name, color::WHITE, Font::Large);
+  else center(g, 2, name, color::WHITE);
+  center(g, 10, tr("A: JOIN", "A: MITSPIELEN"), (ctx.tick() / 30) % 2 ? SEL : TXT);
   char buf[12];
   std::snprintf(buf, sizeof buf, "%d/%u", have, unsigned(m.minPlayers));
   center(g, 17, buf, TXT, Font::Large);
@@ -199,6 +224,7 @@ void SystemMenu::enter(bool inGame) {
   items_[count_++] = Item::Scores;
   items_[count_++] = Item::WebPad;
   items_[count_++] = Item::Brightness;
+  items_[count_++] = Item::Language;
   if (!inGame) items_[count_++] = Item::Back;
   sel_ = 0;
   page_ = Page::Main;
@@ -236,6 +262,10 @@ void SystemMenu::tickMain(Context& ctx) {
     if (in.pressed(Button::Left)) rt_.setBrightnessLevel(lvl - 1);
     if (in.pressed(Button::Right)) rt_.setBrightnessLevel(lvl + 1);
     if (in.pressed(Button::A)) rt_.setBrightnessLevel((lvl + 1) % kBrightnessLevels);
+  } else if (cur == Item::Language) {
+    // nur zwei Sprachen: Links, Rechts und A schalten um
+    if (in.pressed(Button::Left) || in.pressed(Button::Right) || in.pressed(Button::A))
+      rt_.setLang(g_lang == Lang::De ? Lang::En : Lang::De);
   } else if (in.pressed(Button::A)) {
     switch (cur) {
       case Item::Resume:
@@ -274,18 +304,20 @@ void SystemMenu::tickMain(Context& ctx) {
     const uint16_t c = s ? SEL : TXT;
     if (s) g.text(7, y, ">", c, Font::Large);
     switch (items_[i]) {
-      case Item::Resume: g.text(14, y, "WEITER", c, Font::Large); break;
-      case Item::Quit: g.text(14, y, "BEENDEN", c, Font::Large); break;
-      case Item::Back: g.text(14, y, "ZURUECK", c, Font::Large); break;
-      case Item::Players: g.text(14, y, "SPIELER", c, Font::Large); break;
+      case Item::Resume: g.text(14, y, tr("RESUME", "WEITER"), c, Font::Large); break;
+      case Item::Quit: g.text(14, y, tr("QUIT", "BEENDEN"), c, Font::Large); break;
+      case Item::Back: g.text(14, y, tr("BACK", "ZURUECK"), c, Font::Large); break;
+      case Item::Players: g.text(14, y, tr("PLAYERS", "SPIELER"), c, Font::Large); break;
       case Item::Profiles: g.text(14, y, "PROFILE", c, Font::Large); break;
-      case Item::Scores: g.text(14, y, "REKORDE", c, Font::Large); break;
+      case Item::Scores: g.text(14, y, tr("SCORES", "REKORDE"), c, Font::Large); break;
+      // Name der Sprache in ihr selbst, damit man sie auch ohne Sprachkenntnis findet
+      case Item::Language: g.text(14, y, tr("ENGLISH", "DEUTSCH"), c, Font::Large); break;
       case Item::WebPad:
         g.text(14, y, "WEBPAD", c, Font::Large);
         if (rt_.webpad().running()) g.fillRect(52, y + 2, 3, 3, rgb(60, 200, 60));
         break;
       case Item::Brightness: {
-        g.text(14, y, "HELL", c, Font::Large);
+        g.text(14, y, tr("LED", "HELL"), c, Font::Large);
         const int lvl = rt_.settings().brightnessLevel;
         for (int b = 0; b < kBrightnessLevels; ++b) {
           const int h = 1 + b * 6 / (kBrightnessLevels - 1);
@@ -374,7 +406,7 @@ void SystemMenu::tickProfiles(Context& ctx) {
       g.fillRect(5, y, 2, 5, kProfileColor[p.color % kProfileColors]);
       g.text(9, y, p.name, sel ? SEL : TXT);
     } else {
-      g.text(5, y, "+ NEU", sel ? SEL : TXT);
+      g.text(5, y, tr("+ NEW", "+ NEU"), sel ? SEL : TXT);
     }
   }
   char buf[8];
@@ -427,8 +459,8 @@ void SystemMenu::tickEdit(Context& ctx) {
     if (in.pressed(Button::B)) edConfirm_ = false;
     g.fillRect(0, 0, Gfx::W, Gfx::H, BG);
     center(g, 2, pr.at(edIndex_).name, kProfileColor[pr.at(edIndex_).color % kProfileColors], Font::Large);
-    center(g, 13, "LOESCHEN?", rgb(255, 60, 40), Font::Large);
-    center(g, 25, "A JA  B NEIN", TXT);
+    center(g, 13, tr("DELETE?", "LOESCHEN?"), rgb(255, 60, 40), Font::Large);
+    center(g, 25, yesNo(), TXT);
     return;
   }
 
@@ -459,7 +491,7 @@ void SystemMenu::tickEdit(Context& ctx) {
   }
 
   g.fillRect(0, 0, Gfx::W, Gfx::H, BG);
-  g.text(0, 0, edIndex_ < 0 ? "NEUES PROFIL" : "PROFIL", DIM);
+  g.text(0, 0, edIndex_ < 0 ? tr("NEW PROFILE", "NEUES PROFIL") : tr("PROFILE", "PROFIL"), DIM);
   const uint16_t c = kProfileColor[edColor_];
   const int x0 = (Gfx::W - (kNameLen * 6 - 1)) / 2;
   for (int i = 0; i < kNameLen; ++i) {
@@ -468,8 +500,8 @@ void SystemMenu::tickEdit(Context& ctx) {
     if (i == edCursor_ && (ctx.tick() / 12) % 2 == 0) g.hline(x0 + i * 6, 17, 5, color::WHITE);
     else if (edName_[i] == ' ') g.hline(x0 + i * 6 + 1, 17, 3, DIM);
   }
-  g.text(0, 21, "A OK B ABBRUCH", DIM);
-  g.text(0, 27, edIndex_ >= 0 ? "X FARBE Y LOESCH" : "X FARBE", DIM);
+  g.text(0, 21, tr("A OK B CANCEL", "A OK B ABBRUCH"), DIM);
+  g.text(0, 27, edIndex_ >= 0 ? tr("X COLOR Y DELETE", "X FARBE Y LOESCH") : tr("X COLOR", "X FARBE"), DIM);
 }
 
 void SystemMenu::loadScores() {
@@ -485,7 +517,7 @@ void SystemMenu::tickScores(Context& ctx) {
   g.fillRect(0, 0, Gfx::W, Gfx::H, BG);
   if (scGame_ < 0) {
     if (in.pressed(Button::B) || in.pressed(Button::A)) page_ = Page::Main;
-    center(g, 13, "KEINE REKORDE", TXT);
+    center(g, 13, tr("NO SCORES", "KEINE REKORDE"), TXT);
     return;
   }
 
@@ -518,16 +550,16 @@ void SystemMenu::tickScores(Context& ctx) {
   }
 
   const GameMeta& m = game(size_t(scGame_)).meta;
-  center(g, 0, m.name, color::WHITE);
+  center(g, 0, gameName(m), color::WHITE);
   g.text(0, 0, "<", DIM);
   g.text(61, 0, ">", DIM);
   if (scConfirm_) {
-    center(g, 10, "ZURUECKSETZEN?", rgb(255, 60, 40));
-    center(g, 20, "A JA  B NEIN", TXT);
+    center(g, 10, tr("RESET?", "ZURUECKSETZEN?"), rgb(255, 60, 40));
+    center(g, 20, yesNo(), TXT);
     return;
   }
   if (g_scores.count == 0) {
-    center(g, 14, "NOCH LEER", DIM);
+    center(g, 14, tr("EMPTY", "NOCH LEER"), DIM);
     return;
   }
   char buf[16];
@@ -538,7 +570,7 @@ void SystemMenu::tickScores(Context& ctx) {
     std::snprintf(buf, sizeof buf, "%d", i + 1);
     const uint16_t rankColor = i == 0 ? SEL : i == 1 ? SILVER : i == 2 ? BRONZE : FRAME;
     g.text(7 - g.textWidth(buf), y, buf, rankColor);
-    g.text(10, y, e.name, rt_.profiles().find(e.profileId) ? rt_.profiles().color(e.profileId) : TXT);
+    g.text(10, y, scoreName(e), rt_.profiles().find(e.profileId) ? rt_.profiles().color(e.profileId) : TXT);
     std::snprintf(buf, sizeof buf, "%d", int(e.score));
     g.text(Gfx::W - g.textWidth(buf), y, buf, TXT);
   }
@@ -562,8 +594,8 @@ void SystemMenu::tickWebPad(Context& ctx) {
     } else {
       g.fillRect(0, 0, Gfx::W, Gfx::H, BG);
       center(g, 2, rt_.settings().apPass, color::WHITE, Font::Large);
-      center(g, 13, "NEUES PW?", rgb(255, 60, 40), Font::Large);
-      center(g, 25, "A JA  B NEIN", TXT);
+      center(g, 13, tr("NEW PW?", "NEUES PW?"), rgb(255, 60, 40), Font::Large);
+      center(g, 25, yesNo(), TXT);
       return;
     }
   }
@@ -587,12 +619,14 @@ void SystemMenu::tickWebPad(Context& ctx) {
   char buf[24];
   if (!wp.running()) {
     const bool failed = rt_.settings().webpadOn;  // eingeschaltet, aber Netz nicht gestartet
-    g.text(Gfx::W - g.textWidth("AUS"), 0, "AUS", failed ? rgb(255, 60, 40) : DIM);
-    center(g, 9, failed ? "NETZ FEHLER" : "HANDY ALS PAD", failed ? rgb(255, 60, 40) : DIM);
-    center(g, 19, "A EINSCHALTEN", (ctx.tick() / 30) % 2 ? SEL : TXT);
+    const char* off = tr("OFF", "AUS");
+    g.text(Gfx::W - g.textWidth(off), 0, off, failed ? rgb(255, 60, 40) : DIM);
+    center(g, 9, failed ? tr("NET ERROR", "NETZ FEHLER") : tr("PHONE AS PAD", "HANDY ALS PAD"),
+           failed ? rgb(255, 60, 40) : DIM);
+    center(g, 19, tr("A TURN ON", "A EINSCHALTEN"), (ctx.tick() / 30) % 2 ? SEL : TXT);
     return;
   }
-  std::snprintf(buf, sizeof buf, "AN %d", wp.clientCount());
+  std::snprintf(buf, sizeof buf, "%s %d", tr("ON", "AN"), wp.clientCount());
   g.text(Gfx::W - g.textWidth(buf), 0, buf, rgb(60, 200, 60));
   const Settings& st = rt_.settings();
   if (info.accessPoint) {
@@ -601,13 +635,13 @@ void SystemMenu::tickWebPad(Context& ctx) {
     std::snprintf(buf, sizeof buf, "PW %s", st.apPass);
     g.text(0, 13, buf, color::WHITE);
     g.text(0, 19, info.host, TXT);
-    g.text(0, 26, "A AUS X PW Y QR", DIM);
+    g.text(0, 26, tr("A OFF X PW Y QR", "A AUS X PW Y QR"), DIM);
   } else {
-    g.text(0, 7, "IM NETZ DES PC", DIM);
+    g.text(0, 7, tr("ON PC NETWORK", "IM NETZ DES PC"), DIM);
     g.text(0, 13, info.host, color::WHITE);
     std::snprintf(buf, sizeof buf, "PORT %u", unsigned(info.port));
     g.text(0, 19, buf, color::WHITE);
-    g.text(0, 26, "A AUS  Y QR", DIM);
+    g.text(0, 26, tr("A OFF  Y QR", "A AUS  Y QR"), DIM);
   }
 }
 
@@ -648,7 +682,7 @@ void SystemMenu::tickWebPadQr(Context& ctx) {
 
   g.clear();
   if (!qrOk_) {
-    center(g, 13, "QR ZU LANG", rgb(255, 60, 40));
+    center(g, 13, tr("QR TOO LONG", "QR ZU LANG"), rgb(255, 60, 40));
     return;
   }
   // Helle Module leuchten, dunkle bleiben aus; 1 Modul heller Rand. Nicht voll weiß, damit die
@@ -669,12 +703,12 @@ void SystemMenu::tickWebPadQr(Context& ctx) {
     g.vline(49 + 2 * b, 5 - h, h, b <= qrLevel_ ? TXT : DIM);
   }
   if (qrStep_ == 0) {
-    g.text(tx, 8, "WLAN", color::WHITE, Font::Large);
-    g.text(tx, 18, "MIT", TXT);
-    g.text(tx, 24, "KAMERA", TXT);
+    g.text(tx, 8, tr("WIFI", "WLAN"), color::WHITE, Font::Large);
+    g.text(tx, 18, tr("SCAN", "MIT"), TXT);
+    g.text(tx, 24, tr("CAMERA", "KAMERA"), TXT);
   } else {
-    g.text(tx, 8, "SEITE", color::WHITE, Font::Large);
-    g.text(tx, 18, "IM", TXT);
+    g.text(tx, 8, tr("PAGE", "SEITE"), color::WHITE, Font::Large);
+    g.text(tx, 18, tr("IN", "IM"), TXT);
     g.text(tx, 24, "BROWSER", TXT);
   }
 }

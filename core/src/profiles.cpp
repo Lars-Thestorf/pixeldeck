@@ -2,6 +2,7 @@
 
 #include <cstring>
 
+#include "lang_impl.h"
 #include "pd/color.h"
 #include "pd/hal/storage.h"
 
@@ -87,7 +88,7 @@ int Profiles::indexOf(uint8_t id) const {
 
 const char* Profiles::name(uint8_t id) const {
   const Profile* p = find(id);
-  return p ? p->name : "GAST";
+  return p ? p->name : tr("GUEST", "GAST");
 }
 
 uint16_t Profiles::color(uint8_t id) const {

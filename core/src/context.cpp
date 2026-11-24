@@ -4,10 +4,13 @@
 #include <cstdio>
 
 #include "arena.h"
+#include "lang_impl.h"
 #include "pcg32.h"
 #include "pd/os/runtime.h"
 
 namespace pd {
+
+Lang Context::lang() const { return os::g_lang; }
 
 uint32_t Context::random() { return os::Pcg32::next(rngState_, rngInc_); }
 

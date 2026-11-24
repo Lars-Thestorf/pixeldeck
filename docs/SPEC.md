@@ -1,6 +1,6 @@
 # pixeldeck - Spezifikation
 
-Stand: 2026-11-24, Version 0.9 (Begrüßung mit Profil nach dem Einschalten, Podestfarben in der Rekordliste, Start+Select ohne Haltezeit; Version 0.8: Snake mit 1-4 Spielern und Powerup-Modus, Simulator-Option `--fuzz-players`; Version 0.7: Festlegungen aus M6 eingearbeitet: WebPad mit Access Point, Captive Portal, Protokoll, Controller-Seite, PC-Server; M5 Audio steht noch aus; Version 0.6: Festlegungen aus M4: Slots, Lobby, Profile, Highscores, Tastaturlayouts, Gamepads; Version 0.5: Festlegungen und Messwerte aus M3; Version 0.4: M1 und M2; Version 0.2: Registry per CMake, WebPad-Protokoll im Core und Profilwahl beim Join im laufenden Spiel bestätigt)
+Stand: 2026-11-24, Version 0.10 (Sprache der Oberfläche einstellbar, Englisch oder Deutsch, Vorgabe Englisch, siehe 12.4; Version 0.9: Begrüßung mit Profil nach dem Einschalten, Podestfarben in der Rekordliste, Start+Select ohne Haltezeit; Version 0.8: Snake mit 1-4 Spielern und Powerup-Modus, Simulator-Option `--fuzz-players`; Version 0.7: Festlegungen aus M6 eingearbeitet: WebPad mit Access Point, Captive Portal, Protokoll, Controller-Seite, PC-Server; M5 Audio steht noch aus; Version 0.6: Festlegungen aus M4: Slots, Lobby, Profile, Highscores, Tastaturlayouts, Gamepads; Version 0.5: Festlegungen und Messwerte aus M3; Version 0.4: M1 und M2; Version 0.2: Registry per CMake, WebPad-Protokoll im Core und Profilwahl beim Join im laufenden Spiel bestätigt)
 
 pixeldeck ist ein kleines "Betriebssystem" mit Spielen für eine selbstgebaute Spielekonsole (ESP32 + 64x32 RGB-LED-Matrix). Derselbe C++-Code läuft nativ auf dem ESP32 und als Simulator am PC. Dieses Dokument beschreibt alles oberhalb der Hardware-Ansteuerung; die HAL wird hier nur als Schnittstelle spezifiziert.
 
@@ -152,6 +152,7 @@ PD_REGISTER_GAME(Snake, {
   .maxPlayers  = 4,
   .saveVersion = 1,
   .stickAsDpad = false,             // linken Stick zusätzlich als D-Pad melden
+  .nameDe      = nullptr,           // deutscher Anzeigename, nullptr = wie name (0.10)
 });
 ```
 
@@ -177,6 +178,8 @@ public:
   uint32_t random(uint32_t maxExclusive);
   void*    alloc(size_t size, size_t align = alignof(std::max_align_t)); // nur in init()
   void     log(const char* fmt, ...);
+  Lang        lang() const;                              // Lang::En oder Lang::De (0.10)
+  const char* tr(const char* en, const char* de) const;  // Text in der eingestellten Sprache
 };
 ```
 
@@ -292,7 +295,7 @@ public:
   uint16_t buttons() const;                 // Rohmaske aller gehaltenen Buttons
   Stick left() const;
   Stick right() const;
-  const char* name() const;                 // Profilname oder "GAST"
+  const char* name() const;                 // Profilname oder "GUEST" bzw. "GAST"
   uint16_t color() const;                   // Profilfarbe
   void rumble(uint16_t ms);                 // No-Op, wenn das Gerät es nicht kann
 };
@@ -346,7 +349,7 @@ Umgesetzt (M4): Anzeige Spielname, "A: MITSPIELEN", "n/minPlayers" und je Slot b
 
 - Lokal auf der Konsole gespeichert, kein Netz-Account. Max. **16 Profile**.
 - Profil = **Name** (max. 8 Zeichen) + **Farbe** aus fester Palette (**[Annahme]** 8 Farben).
-- **Gast** gibt es immer, Name "GAST".
+- **Gast** gibt es immer, Name "GUEST" bzw. auf Deutsch "GAST" (0.10).
 - Anlegen, Umbenennen, Löschen im Systemmenü, ohne Schutz.
 - Auswahl beim Join:
   - **WebPad:** Auswahl oder Neuanlage auf dem Handy. Handy merkt sich das Profil, danach genügt A.
@@ -368,7 +371,7 @@ Umgesetzt (M4), `core/src/profiles.*`:
 - Nur für Spiele mit `scoreMode != None`. `Higher` oder `Lower` ist besser.
 - `ctx.scores.submit(slot, int32_t score)` ordnet den Score dem Profil im Slot zu. Keine Namenseingabe im Spiel.
 - Top 10 pro Spiel. Eintrag = Profil-ID, **Kopie des Namens**, Score. **[Annahme]** Die Namenskopie sorgt dafür, dass Einträge gelöschter Profile erhalten bleiben.
-- Gast-Scores werden gespeichert (als "GAST").
+- Gast-Scores werden gespeichert (Namenskopie in der Sprache beim Eintrag; angezeigt wird der Gastname immer in der aktuellen Sprache, erkannt an Profil-ID `0xFF`).
 - Launcher zeigt den Rekord pro Spiel. Systemmenü: Listen ansehen, pro Spiel zurücksetzen.
 
 Umgesetzt (M4), `core/src/score_table.*`:
@@ -406,7 +409,7 @@ public:
 | ESP32 | NVS (Wear-Leveling durch IDF), Partition `nvs` 128 KB (M3), ein Blob pro Schlüssel |
 | PC | `~/.pixeldeck/` (Linux), `%APPDATA%\pixeldeck\` (Windows) |
 
-OS-Daten (Profile, Scores, Einstellungen) liegen in reservierten Namensräumen ohne `g_`-Präfix: Einstellungen in `os/settings` (Version 2 seit M6: zusätzlich WebPad an/aus, SSID-Suffix, WLAN-Passwort; Version 1 wird übernommen), Profile in `os/profiles`, Highscores in `s_<id>/top`. Namensräume und Schlüssel: nur `[a-z0-9_]`, max. 15 Zeichen. Am PC ist das Verzeichnis per `--data-dir` wählbar; geschrieben wird atomar (temporäre Datei, dann umbenennen).
+OS-Daten (Profile, Scores, Einstellungen) liegen in reservierten Namensräumen ohne `g_`-Präfix: Einstellungen in `os/settings` (Version 2 seit M6: zusätzlich WebPad an/aus, SSID-Suffix, WLAN-Passwort; Version 3 seit 0.10: zusätzlich Sprache; ältere Versionen werden übernommen, neue Felder bekommen ihre Vorgabe), Profile in `os/profiles`, Highscores in `s_<id>/top`. Namensräume und Schlüssel: nur `[a-z0-9_]`, max. 15 Zeichen. Am PC ist das Verzeichnis per `--data-dir` wählbar; geschrieben wird atomar (temporäre Datei, dann umbenennen).
 
 ---
 
@@ -603,6 +606,16 @@ Encoder `core/src/qrcode.*`: eigene Umsetzung nach ISO/IEC 18004, Version 1-4, F
 - Hinweis nach Absturz oder Watchdog-Reset (siehe 14.2)
 - Begrüßung nach dem Einschalten (0.9): "HALLO" und darunter der Name des Profils, mit dem das Primärgerät (eingebautes Pad bzw. Tastatur) startet, in Profilfarbe; eine Linie in Profilfarbe wächst darunter von der Mitte aus. Ohne gemerktes Profil "GAST". Dauer 2 s **[Annahme]**, A, B oder Start beendet sie, der Tastendruck erreicht den Launcher nicht. Bis zu 1 s wird auf das Primärgerät gewartet (am ESP kommt es über den xmega-Link), sonst entfällt die Begrüßung. Nicht bei Direktstart; ein Hinweis nach Absturz kommt zuerst. `RunOptions::greeting = false` schaltet sie ab (Tests).
 
+### 12.4 Sprache (0.10)
+
+Englisch (Vorgabe) oder Deutsch, umschaltbar im Systemmenü. Die Texte in 12.1-12.3 sind die deutschen; die englischen stehen jeweils daneben im Code (`tr("EN", "DE")`).
+
+- Menüpunkt nach HELL (englisch LED): zeigt den Namen der aktuellen Sprache in ihr selbst, **ENGLISH** bzw. **DEUTSCH**, damit man ihn ohne Sprachkenntnis findet. Links, Rechts oder A schaltet um, sofort wirksam; gespeichert beim Schließen des Menüs (`os/settings`, Version 3). Bestehende Geräte bekommen beim Update Englisch.
+- OS: `core/src/lang_impl.h` mit `g_lang`, `tr()` und `gameName()`. Spiele: `ctx.lang()` und `ctx.tr(en, de)`; Spielnamen über `GameMeta::nameDe` (STACK/STAPEL, TESTCARD/TESTBILD). Spiel-ids bleiben, Spielstände und Highscores sind davon unberührt.
+- WebPad: WELCOME trägt die Sprache als letztes Byte; bei einer Umstellung schickt die Konsole WELCOME erneut an alle Handys, die Seite stellt sofort um. Vor dem ersten WELCOME nimmt die Seite die zuletzt gemerkte Sprache (`localStorage`), sonst die des Browsers.
+- Auf Englisch gekürzt bzw. angepasst wegen der Breite: HELL = LED, Spielerzahl "1-4P" (deutsch "1-4 SP"), Profilwahl "P2: WHO ARE YOU", Menüpunkt PROFILE (PROFILES passt in 5x7 nicht neben den Rollbalken). Gerätekürzel CON, KEY, PAD, WEB (deutsch KON, TAS, PAD, WEB). "P1" als Slot-Kürzel bleibt in beiden Sprachen.
+- Logausgaben, Kommentare und diese Spezifikation bleiben deutsch.
+
 ---
 
 ## 13. WebPad
@@ -657,7 +670,7 @@ Konsole → Client:
 
 | Typ | Name | Inhalt |
 |---|---|---|
-| `0x81` | WELCOME | Version `u8`, Anzahl Farben `u8`, Palette als RGB565 `u16` je Farbe |
+| `0x81` | WELCOME | Version `u8`, Anzahl Farben `u8`, Palette als RGB565 `u16` je Farbe, Sprache `u8` (0 Englisch, 1 Deutsch; seit 0.10, auch erneut bei Umstellung) |
 | `0x82` | SLOT | Slot (`0xFF` = nicht beigetreten), Profil-ID (im Slot bzw. gewünscht) |
 | `0x83` | RUMBLE | Dauer ms `u16` |
 | `0x84` | PROFILES | Anzahl `u8`, je Profil: ID, Farbindex, Name (8 Byte) |
@@ -853,7 +866,7 @@ Startspiele (eigene Designs, keine Nachbildungen bestehender Spiele):
   - **POWER**: zusätzlich alle 3-7 s ein Powerup (max. 2 gleichzeitig, liegt 10 s, blinkt vor dem Verschwinden), +2 Punkte, wirkt nur auf den Fresser: blau = langsamer (6 s, Zugintervall x1,5), gelb = schneller (6 s, x2/3; hebt "langsamer" auf und umgekehrt), weiß = unverwundbar (5 s: durch alle Körper hindurch, Wände führen auf die Gegenseite; andere sterben weiterhin an diesem Körper), violett = unsichtbar (6 s, nur der Kopf ist zu sehen, der Körper bleibt Hindernis). Restzeit als Leiste unter der Punktezahl. Werte sind **[Annahme]**, nach Spieltest anpassen.
   - Ab 2 Spielern: feste Farben je Slot (grün, orange, cyan, pink), Startreihen abwechselnd von links und rechts, Countdown 2,5 s. Wand, Körper oder zwei Köpfe auf demselben Feld töten; Züge eines Ticks werden gemeinsam aufgelöst (Slot-Reihenfolge ohne Vorteil). Tote Körper bleiben 1 s als Hindernis. Letzter Überlebender gewinnt, Siege werden bis zum Moduswechsel gezählt; sterben alle gleichzeitig: unentschieden. Ab 3 Spielern liegen 2 Futter. Beitritt wirkt ab der nächsten Runde.
 - **Tennis** (`tennis`) - 1-2P; ohne zweiten Spieler steuert die CPU die rechte Seite. Erster mit 7 Punkten gewinnt.
-- **Fallblock-Spiel STAPEL** (`stapel`) - Zweierpaare farbiger Blöcke fallen in einen 6x10-Schacht; 3 oder mehr gleiche Farben waagerecht oder senkrecht lösen sich auf, Ketten zählen mehrfach. Highscore, Text, Spielstand (wird in `onShutdown` gesichert und beim nächsten Start fortgesetzt).
+- **Fallblock-Spiel STAPEL** (`stapel`, englisch STACK) - Zweierpaare farbiger Blöcke fallen in einen 6x10-Schacht; 3 oder mehr gleiche Farben waagerecht oder senkrecht lösen sich auf, Ketten zählen mehrfach. Highscore, Text, Spielstand (wird in `onShutdown` gesichert und beim nächsten Start fortgesetzt).
 - später ein **4-Spieler-Partyspiel** mit Lichtspuren als Zugpferd für das WebPad
 
 ---

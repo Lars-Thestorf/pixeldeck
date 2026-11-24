@@ -6,6 +6,7 @@
 
 #include "pd/input.h"
 #include "pd/os/runtime.h"
+#include "lang_impl.h"
 #include "profiles.h"
 #include "score_table.h"
 #include "test_game.h"
@@ -43,7 +44,11 @@ TEST_CASE("Profile: anlegen, ändern, löschen, speichern") {
   CHECK(std::string(p.name(a)) == "LARS");
   CHECK(std::string(p.name(b)) == "ANNA-123");
   CHECK(p.color(b) == os::kProfileColor[1]);
+  os::g_lang = Lang::En;
+  CHECK(std::string(p.name(os::kGuest)) == "GUEST");
+  os::g_lang = Lang::De;
   CHECK(std::string(p.name(os::kGuest)) == "GAST");
+  os::g_lang = Lang::En;
   CHECK(p.color(os::kGuest) == os::kGuestColor);
   CHECK(p.update(a, "LARS T ", 4));
   CHECK(std::string(p.name(a)) == "LARS T");
@@ -120,7 +125,7 @@ TEST_CASE("Highscores: submit aus dem Spiel geht an das Profil im Slot") {
   CHECK(t.e[0].score == 120);
   CHECK(t.e[0].profileId == id);
   CHECK(std::string(t.e[0].name) == "LARS");
-  CHECK(std::string(t.e[1].name) == "GAST");
+  CHECK(std::string(t.e[1].name) == "GUEST");
   CHECK(os::ScoreTable::reset("testgame"));
   CHECK_FALSE(t.load("testgame"));
 }

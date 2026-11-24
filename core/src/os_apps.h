@@ -1,13 +1,21 @@
 #pragma once
+#include <cstddef>
 #include <cstdint>
 
 #include "pd/game.h"
+#include "pd/hal/input.h"
+#include "pd/lang.h"
 #include "pd/registry.h"
 #include "profiles.h"
 
 namespace pd::os {
 
 class Runtime;
+class InputSystem;
+
+// Anzeigename eines Geräts in der eingestellten Sprache (Konsole, Tastatur n, sonst HAL-Name).
+void deviceLabel(const InputSystem& is, uint32_t deviceId, hal::input::DeviceType type, char* out,
+                 size_t n);
 
 // Launcher, Lobby und Systemmenü sind intern Spiele über dieselbe API (SPEC 12).
 // Sie liegen statisch im OS, nicht in der Arena, und stehen nicht in der Registry.
@@ -28,6 +36,7 @@ private:
   bool recValid_ = false;
   int32_t recScore_ = 0;
   char recName_[kNameLen + 1] = {};
+  Lang recLang_ = Lang::En;  // Sprache, in der recName_ geladen wurde
 };
 
 // Wartet, bis genug Spieler für minPlayers verbunden sind (SPEC 6.4).
@@ -47,7 +56,7 @@ public:
   void enter(bool inGame);
   void tick(Context& ctx) override;
 
-  enum class Item : uint8_t { Resume, Quit, Players, Profiles, Scores, WebPad, Brightness, Back };
+  enum class Item : uint8_t { Resume, Quit, Players, Profiles, Scores, WebPad, Brightness, Language, Back };
   enum class Page : uint8_t { Main, Players, Profiles, Edit, Scores, WebPad, WebPadQr };
 
 private:
@@ -64,7 +73,7 @@ private:
 
   Runtime& rt_;
   Page page_ = Page::Main;
-  Item items_[8] = {};
+  Item items_[9] = {};
   int count_ = 0;
   int sel_ = 0;
 

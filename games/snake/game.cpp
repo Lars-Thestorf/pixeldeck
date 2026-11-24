@@ -34,7 +34,8 @@ constexpr uint16_t FOOD = rgb(255, 50, 60);
 enum Fx : uint8_t { Slow, Fast, Ghost, Invisible, FX_COUNT };
 constexpr uint16_t FX_COLOR[FX_COUNT] = {rgb(40, 80, 255), rgb(255, 220, 0),
                                          rgb(255, 255, 255), rgb(170, 60, 255)};
-constexpr const char* FX_NAME[FX_COUNT] = {"LANGSAM", "SCHNELL", "UNVERWUNDBAR", "UNSICHTBAR"};
+constexpr const char* FX_NAME[FX_COUNT] = {"SLOW", "FAST", "INVINCIBLE", "INVISIBLE"};
+constexpr const char* FX_NAME_DE[FX_COUNT] = {"LANGSAM", "SCHNELL", "UNVERWUNDBAR", "UNSICHTBAR"};
 constexpr uint16_t FX_TICKS[FX_COUNT] = {360, 360, 300, 360};  // Wirkdauer bei 60 Hz
 constexpr uint16_t ITEM_TTL = 600;                            // Powerup liegt 10 s
 constexpr int SPAWN_MIN = 180, SPAWN_RAND = 240;              // alle 3-7 s ein neues
@@ -503,18 +504,19 @@ private:
         char buf[16];
         int n = 0;
         for (const Body& b : s_) n += b.active;
-        std::snprintf(buf, sizeof buf, "%d SPIELER", n);
+        std::snprintf(buf, sizeof buf, "%d %s", n, ctx.tr(n == 1 ? "PLAYER" : "PLAYERS", "SPIELER"));
         centered(g, 3, buf, color::GRAY);
-        centered(g, 10, mode_ == Mode::Classic ? "< KLASSIK >" : "< POWER >", color::YELLOW);
+        centered(g, 10, mode_ == Mode::Classic ? ctx.tr("< CLASSIC >", "< KLASSIK >") : "< POWER >", color::YELLOW);
         if (mode_ == Mode::Power) {
           // Legende der Powerups im Wechsel
           const int f = int((timer_ / 60) % FX_COUNT);
-          const int w = 3 + g.textWidth(FX_NAME[f]);
+          const char* fx = ctx.tr(FX_NAME[f], FX_NAME_DE[f]);
+          const int w = 3 + g.textWidth(fx);
           const int x = (Gfx::W - w) / 2;
           g.fillRect(x, 17, 2, 2, FX_COLOR[f]);
-          g.text(x + 4, 16, FX_NAME[f], color::GRAY);
+          g.text(x + 4, 16, fx, color::GRAY);
         } else {
-          centered(g, 16, n == 1 ? "HIGHSCORE" : "NUR FUTTER", color::GRAY);
+          centered(g, 16, n == 1 ? "HIGHSCORE" : ctx.tr("FOOD ONLY", "NUR FUTTER"), color::GRAY);
         }
         centered(g, 23, "A = START", color::WHITE);
         break;
@@ -537,9 +539,9 @@ private:
         if (!multi_) {
           g.fillRect(4, 7, 56, 24, color::BLACK);
           g.rect(4, 7, 56, 24, color::GRAY);
-          centered(g, 9, "ENDE", color::RED, Font::Large);
-          centered(g, 18, "A = NOCHMAL", color::GRAY);
-          centered(g, 24, "B = MODUS", color::GRAY);
+          centered(g, 9, ctx.tr("GAME OVER", "ENDE"), color::RED, Font::Large);
+          centered(g, 18, ctx.tr("A = AGAIN", "A = NOCHMAL"), color::GRAY);
+          centered(g, 24, ctx.tr("B = MODE", "B = MODUS"), color::GRAY);
         } else {
           const uint16_t wc = winner_ >= 0 ? scaled(SNAKE_RGB[winner_], 100) : color::GRAY;
           g.fillRect(2, 4, 60, 28, color::BLACK);
@@ -548,9 +550,9 @@ private:
             char who[16];
             std::snprintf(who, sizeof who, "P%d %s", winner_ + 1, ctx.input.player(winner_).name());
             centered(g, 6, who, wc);
-            centered(g, 12, "GEWINNT", wc);
+            centered(g, 12, ctx.tr("WINS", "GEWINNT"), wc);
           } else {
-            centered(g, 9, "UNENTSCHIEDEN", color::GRAY);
+            centered(g, 9, ctx.tr("DRAW", "UNENTSCHIEDEN"), color::GRAY);
           }
           // Siege je Spieler in seiner Farbe, z.B. "2:1:0"
           char buf[8];
@@ -568,7 +570,7 @@ private:
             std::snprintf(buf, sizeof buf, "%d", wins_[i]);
             x += g.text(x, 18, buf, scaled(SNAKE_RGB[i], 100)) + 1;
           }
-          centered(g, 25, "A=NEU B=MODUS", color::GRAY);
+          centered(g, 25, ctx.tr("A=NEW B=MODE", "A=NEU B=MODUS"), color::GRAY);
         }
         break;
     }
