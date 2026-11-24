@@ -13,7 +13,10 @@ namespace pd {
 
 namespace os { class Runtime; class Arena; }
 
-#if defined(__GNUC__)
+#if defined(__MINGW32__)
+// MinGW: "printf" hieße MS-Format ohne %zu; libstdc++ nutzt aber die ANSI-stdio
+#define PD_PRINTF_FMT(a, b) __attribute__((format(gnu_printf, a, b)))
+#elif defined(__GNUC__)
 #define PD_PRINTF_FMT(a, b) __attribute__((format(printf, a, b)))
 #else
 #define PD_PRINTF_FMT(a, b)

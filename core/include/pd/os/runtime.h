@@ -30,7 +30,9 @@ bool gameCodeActive();
 
 // Formatiertes Log über hal::log
 enum class LogLevel : uint8_t { Debug, Info, Warn, Error };
-#if defined(__GNUC__)
+#if defined(__MINGW32__)
+__attribute__((format(gnu_printf, 2, 3)))
+#elif defined(__GNUC__)
 __attribute__((format(printf, 2, 3)))
 #endif
 void logf(LogLevel level, const char* fmt, ...);

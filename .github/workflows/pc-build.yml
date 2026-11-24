@@ -1,0 +1,119 @@
+# PC-Simulator für Linux und Windows bauen und testen.
+# Windows mit MinGW (MSYS2 UCRT64): Die Spiele nutzen designated initializers in C++17,
+# die MSVC erst ab C++20 annimmt.
+# Ein Tag v* (z. B. v0.2.0) legt zusätzlich ein GitHub-Release mit beiden Binaries an.
+name: PC-Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # SDL 3 wird per FetchContent statisch gebaut. Die Header für X11/Wayland/Audio
+      # braucht SDL, damit es die Backends einbaut (geladen wird zur Laufzeit dynamisch).
+      - name: Abhängigkeiten
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build python3-pil zbar-tools \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxss-dev \
+            libxfixes-dev libxtst-dev libxkbcommon-dev libwayland-dev wayland-protocols \
+            libegl1-mesa-dev libgl1-mesa-dev libdrm-dev libgbm-dev \
+            libasound2-dev libpulse-dev libpipewire-0.3-dev libdbus-1-dev libudev-dev libibus-1.0-dev
+
+      - name: Konfigurieren
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Bauen
+        run: cmake --build build
+
+      - name: Tests
+        run: ctest --test-dir build --output-on-failure
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pixeldeck-linux-x86_64
+          path: build/pixeldeck
+          if-no-files-found: error
+
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-python-pillow
+
+      - name: Konfigurieren
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Bauen
+        run: cmake --build build
+
+      - name: Tests
+        run: ctest --test-dir build --output-on-failure
+
+      # pixeldeck.exe ist statisch gelinkt (SDL, libstdc++), braucht also keine DLLs daneben
+      - name: Abhängigkeiten prüfen
+        run: |
+          objdump -p build/pixeldeck.exe | grep 'DLL Name'
+          ! objdump -p build/pixeldeck.exe | grep -iE 'DLL Name: (lib|SDL)'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pixeldeck-windows-x86_64
+          path: build/pixeldeck.exe
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux, windows]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      # upload-artifact verliert das Ausführbar-Bit, daher Linux als tar.gz
+      - name: Pakete schnüren
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          cd dist
+          chmod +x pixeldeck-linux-x86_64/pixeldeck
+          tar -C pixeldeck-linux-x86_64 -czf "pixeldeck-${tag}-linux-x86_64.tar.gz" pixeldeck
+          (cd pixeldeck-windows-x86_64 && zip -9 "../pixeldeck-${tag}-windows-x86_64.zip" pixeldeck.exe)
+          sha256sum *.tar.gz *.zip > SHA256SUMS
+          ls -la
+
+      - name: Release anlegen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" \
+            --title "pixeldeck ${GITHUB_REF_NAME}" --generate-notes \
+            dist/*.tar.gz dist/*.zip dist/SHA256SUMS

@@ -22,6 +22,17 @@ Tastatur 1 (Spieler 1, rechte Hälfte): Pfeile, `;` `.` `O` `K` = A B X Y, `I`/`
 Tastatur 2 (linke Hälfte): WASD, `H` `B` `T` `F` = A B X Y, `Q`/`E` = L/R, `2`/`1` = Start/Select.
 Tastatur 2 und SDL-Gamepads treten mit A bei; Profile, Spieler und Rekorde im Systemmenü.
 
+## CI und Releases
+
+GitHub Actions ([.github/workflows/pc-build.yml](.github/workflows/pc-build.yml)) baut und testet
+den PC-Simulator für Linux und Windows (MinGW, statisch gelinkt) bei jedem Push auf `main` und
+bei Pull Requests. Die Binaries hängen als Artefakte am Lauf. Ein Tag `v*` legt zusätzlich ein
+GitHub-Release mit beiden Binaries an:
+
+```sh
+git tag v0.2.0 && git push origin v0.2.0
+```
+
 ## WebPad (Handy als Controller)
 
 Systemmenü > WEBPAD > A schaltet es ein (bleibt gespeichert).

@@ -9,6 +9,9 @@ if(NOT SDL3_FOUND)
   set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
   set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
   set(SDL_TESTS OFF CACHE BOOL "" FORCE)
+  # statisch, damit das Binary ohne SDL3.dll/libSDL3.so aus dem Build-Ordner läuft
+  set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+  set(SDL_STATIC ON CACHE BOOL "" FORCE)
   FetchContent_Declare(SDL3
     URL https://github.com/libsdl-org/SDL/releases/download/release-3.2.10/SDL3-3.2.10.tar.gz
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
@@ -27,3 +30,7 @@ add_executable(pixeldeck
 find_package(Threads REQUIRED)
 target_link_libraries(pixeldeck PRIVATE pd_core pd_flags ${PD_GAME_TARGETS} SDL3::SDL3 Threads::Threads)
 set_target_properties(pixeldeck PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+if(MINGW)
+  # Windows: libstdc++/libgcc/winpthread einbinden, damit pixeldeck.exe allein läuft
+  target_link_options(pixeldeck PRIVATE -static)
+endif()
