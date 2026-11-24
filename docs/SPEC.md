@@ -1,6 +1,6 @@
 # pixeldeck - Spezifikation
 
-Stand: 2026-11-22, Version 0.8 (Snake mit 1-4 Spielern und Powerup-Modus, Simulator-Option `--fuzz-players`; Version 0.7: Festlegungen aus M6 eingearbeitet: WebPad mit Access Point, Captive Portal, Protokoll, Controller-Seite, PC-Server; M5 Audio steht noch aus; Version 0.6: Festlegungen aus M4: Slots, Lobby, Profile, Highscores, Tastaturlayouts, Gamepads; Version 0.5: Festlegungen und Messwerte aus M3; Version 0.4: M1 und M2; Version 0.2: Registry per CMake, WebPad-Protokoll im Core und Profilwahl beim Join im laufenden Spiel bestätigt)
+Stand: 2026-11-24, Version 0.9 (Begrüßung mit Profil nach dem Einschalten, Podestfarben in der Rekordliste, Start+Select ohne Haltezeit; Version 0.8: Snake mit 1-4 Spielern und Powerup-Modus, Simulator-Option `--fuzz-players`; Version 0.7: Festlegungen aus M6 eingearbeitet: WebPad mit Access Point, Captive Portal, Protokoll, Controller-Seite, PC-Server; M5 Audio steht noch aus; Version 0.6: Festlegungen aus M4: Slots, Lobby, Profile, Highscores, Tastaturlayouts, Gamepads; Version 0.5: Festlegungen und Messwerte aus M3; Version 0.4: M1 und M2; Version 0.2: Registry per CMake, WebPad-Protokoll im Core und Profilwahl beim Join im laufenden Spiel bestätigt)
 
 pixeldeck ist ein kleines "Betriebssystem" mit Spielen für eine selbstgebaute Spielekonsole (ESP32 + 64x32 RGB-LED-Matrix). Derselbe C++-Code läuft nativ auf dem ESP32 und als Simulator am PC. Dieses Dokument beschreibt alles oberhalb der Hardware-Ansteuerung; die HAL wird hier nur als Schnittstelle spezifiziert.
 
@@ -115,7 +115,7 @@ Grundsätze:
 Das OS besitzt die Hauptschleife. Pro Tick (fest **60 Hz**):
 
 1. HAL-Eingaben lesen, Slot-Manager aktualisieren, Input-Snapshot bilden
-2. OS-Kombination prüfen (Start+Select halten auf Slot 0)
+2. OS-Kombination prüfen (Start+Select auf Slot 0)
 3. `game.tick(ctx)` - Logik **und** Zeichnen in einem Aufruf
 4. OS-Overlays (Verbindungsverlust, Akkuwarnung) über den Framebuffer legen
 5. `hal::display::present(framebuffer)`
@@ -310,7 +310,7 @@ public:
 
 - **Snapshot:** Vor jedem `tick()` gebildet, während des Ticks konstant.
 - Spiele kennen den **Controller-Typ nicht**. Das OS kennt ihn (für Icons im Menü).
-- **Start+Select halten (ca. 1 s) am Primärgerät** (eingebautes Pad bzw. Tastatur 1, normalerweise Slot 0) öffnet das Systemmenü. Diese Kombination sieht das Spiel nie. An anderen Geräten ohne OS-Funktion. Technisch: Sind beide gleichzeitig gehalten, blendet das OS beide aus, bis beide losgelassen sind; ein vorher allein gedrücktes Start erreicht das Spiel also kurz.
+- **Start+Select am Primärgerät** (eingebautes Pad bzw. Tastatur 1, normalerweise Slot 0) öffnet das Systemmenü. Seit 0.9 ohne Haltezeit: Es öffnet im ersten Tick, in dem beide gedrückt sind, das Spiel bekommt danach keinen Tick mehr (vorher ca. 1 s halten, im Spiel zu spät). Für 250 ms **[Annahme]** nach Öffnen oder Schließen des Menüs zählt die Kombination nicht, sonst öffnet ein Start, das einen Tick vor Select kommt und das Menü schon schließt, es gleich wieder (und im Launcher umgekehrt). Diese Kombination sieht das Spiel nie. An anderen Geräten ohne OS-Funktion. Technisch: Sind beide gleichzeitig gehalten, blendet das OS beide aus, bis beide losgelassen sind; ein vorher allein gedrücktes Start erreicht das Spiel also kurz.
 - Slots oberhalb von `maxPlayers` sind für das Spiel immer `connected() == false`.
 - Mit `stickAsDpad` meldet das OS den linken Stick zusätzlich als D-Pad-Bits (Schwelle **[Annahme]** 50 % Auslenkung).
 
@@ -573,14 +573,14 @@ Launcher und Systemmenü sind intern selbst Spiele über dieselbe API (Test der 
 
 ### 12.2 Systemmenü
 
-Aus dem Launcher per Start, im Spiel per Start+Select halten (Slot 0). Im Spiel liegt das Menü über dem **abgedunkelten, eingefrorenen Spielbild**.
+Aus dem Launcher per Start, im Spiel per Start+Select (Slot 0, sofort). Im Spiel liegt das Menü über dem **abgedunkelten, eingefrorenen Spielbild**.
 
 Umgesetzt (M2): Weiter, Beenden, Helligkeit; aus dem Launcher Helligkeit und Zurück. Bedienung: Hoch/Runter wählen, A ausführen, Links/Rechts Helligkeit, B oder Start schließt, Start+Select schließt ebenfalls. Das Bild wird beim Öffnen einmal im Framebuffer abgedunkelt (kein zweiter 4-KB-Puffer); ein Spiel, das nicht selbst `clear()` aufruft, sieht nach "Weiter" Reste davon. Helligkeit: 8 Stufen **[Annahme]** (12, 24, 44, 72, 108, 152, 204, 255), gespeichert in den OS-Einstellungen. "Beenden" führt immer in den Launcher, auch nach Direktstart.
 
 Umgesetzt (M4): Hauptliste im Spiel WEITER, BEENDEN, SPIELER, PROFILE, REKORDE, HELL; im Launcher SPIELER, PROFILE, REKORDE, HELL, ZURUECK. Drei Zeilen sichtbar, das Fenster rollt mit, Rollbalken rechts. Start schließt das Menü von jeder Seite, B geht eine Ebene zurück. Die Unterseiten füllen den ganzen Bildschirm; nach "Weiter" sieht ein Spiel ohne `clear()` deren Reste.
 - **SPIELER:** vier Zeilen Slot, Profilfarbe, Name, Gerät (KON, TAS, PAD; reserviert blinkt). Hoch/Runter Slot, Links/Rechts Profil (Gast und freie Profile, wird für das Gerät gemerkt), A markiert, zweites A tauscht, X entfernt das Gerät aus dem Slot (nicht das Primärgerät).
 - **PROFILE:** Liste mit "+ NEU" am Ende, Anzahl "n/16". A öffnet den Editor: Hoch/Runter Zeichen, Links/Rechts Cursor, X Farbe, A speichern, B abbrechen, Y löschen mit Rückfrage "LOESCHEN? A JA B NEIN". Gelöschte Profile werden in Slots und Gerätezuordnung zu Gast.
-- **REKORDE:** Links/Rechts Spiel (nur mit `scoreMode`), vorgewählt das zuletzt gestartete, vier Einträge sichtbar, Hoch/Runter blättert, X setzt nach Rückfrage zurück.
+- **REKORDE:** Links/Rechts Spiel (nur mit `scoreMode`), vorgewählt das zuletzt gestartete, vier Einträge sichtbar, Hoch/Runter blättert, X setzt nach Rückfrage zurück. Platznummern (0.9): 1 Gold (255, 210, 0), 2 Silber (das bisherige Grau 60, 60, 60), 3 Bronze (180, 90, 30) **[Annahme]**, ab 4 im Rahmenblau (50, 50, 110).
 
 Umgesetzt (M6): Menüpunkt **WEBPAD** zwischen REKORDE und HELL (grüner Punkt, wenn an). Die Seite zeigt "AN n" (verbundene Handys) und am ESP SSID, Passwort und 192.168.77.1, am PC IP und Port. A schaltet ein/aus (gespeichert, gilt auch nach Neustart), X erzeugt nach Bestätigung ("NEUES PW?", A ja, B nein, wie beim Löschen eines Profils) ein neues WLAN-Passwort (Access Point startet neu), B zurück. Scheitert der Start, steht dort "NETZ FEHLER".
 
@@ -601,6 +601,7 @@ Encoder `core/src/qrcode.*`: eigene Umsetzung nach ISO/IEC 18004, Version 1-4, F
 - Spieler getrennt / verbunden (kurz, oben). Umgesetzt (M4): 2 s, Streifen 64x7 oben; der überdeckte Bildteil wird nach `present()` zurückgeschrieben, Spiele sehen das Overlay also nie im Framebuffer.
 - Akku niedrig **[Annahme]** unter 10 %
 - Hinweis nach Absturz oder Watchdog-Reset (siehe 14.2)
+- Begrüßung nach dem Einschalten (0.9): "HALLO" und darunter der Name des Profils, mit dem das Primärgerät (eingebautes Pad bzw. Tastatur) startet, in Profilfarbe; eine Linie in Profilfarbe wächst darunter von der Mitte aus. Ohne gemerktes Profil "GAST". Dauer 2 s **[Annahme]**, A, B oder Start beendet sie, der Tastendruck erreicht den Launcher nicht. Bis zu 1 s wird auf das Primärgerät gewartet (am ESP kommt es über den xmega-Link), sonst entfällt die Begrüßung. Nicht bei Direktstart; ein Hinweis nach Absturz kommt zuerst. `RunOptions::greeting = false` schaltet sie ab (Tests).
 
 ---
 

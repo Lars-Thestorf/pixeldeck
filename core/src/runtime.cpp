@@ -217,6 +217,7 @@ void Runtime::endGame() {
 void Runtime::openMenu() {
   if (menuOpen_) return;
   menuOpen_ = true;
+  menuCooldown_ = kMenuCooldownTicks;
   dim(gfx_);
   menu_.enter(game_ != nullptr);
 }
@@ -224,6 +225,7 @@ void Runtime::openMenu() {
 void Runtime::closeMenu() {
   if (!menuOpen_) return;
   menuOpen_ = false;
+  menuCooldown_ = kMenuCooldownTicks;
   setBrightnessLevel(settings_.brightnessLevel);  // QR-Ansicht kann sie vorübergehend ändern
   saveSettings(settings_);
 }
@@ -273,6 +275,48 @@ bool Runtime::tickNotice() {
   return true;
 }
 
+// --- Begrüßung nach dem Einschalten (SPEC 12.3) ----------------------------------
+
+// true, solange die Begrüßung läuft oder noch auf das Primärgerät gewartet wird
+// (am ESP meldet sich das eingebaute Pad erst über den xmega-Link).
+// A, B oder Start beendet sie; der Tastendruck erreicht den Launcher nicht.
+bool Runtime::tickGreeting() {
+  if (greetTicks_ == 0) {
+    if (greetWait_ == 0) return false;
+    --greetWait_;
+    if (inputSys_.primarySlot() < 0) {
+      gfx_.clear();
+      return greetWait_ > 0;
+    }
+    greetWait_ = 0;
+    greetTicks_ = 2 * PD_TICK_HZ;
+    const int s = inputSys_.primarySlot();
+    logf(LogLevel::Info, "Hallo %s", profiles_.name(inputSys_.slot(s).profileId));
+  }
+  const int s = inputSys_.primarySlot();
+  Player& p = osInput_.player(0);
+  if (s < 0 || p.pressed(Button::A) || p.pressed(Button::B) || p.pressed(Button::Start)) {
+    greetTicks_ = 0;
+    gfx_.clear();
+    return true;
+  }
+  const uint32_t t = 2 * PD_TICK_HZ - greetTicks_;  // Ticks seit Beginn
+  --greetTicks_;
+
+  const uint8_t id = inputSys_.slot(s).profileId;
+  const char* name = profiles_.name(id);
+  const uint16_t c = profiles_.color(id);
+  Gfx& g = gfx_;
+  g.clear();
+  g.text((Gfx::W - g.textWidth("HALLO")) / 2, 4, "HALLO", rgb(200, 200, 200));
+  if (g.textWidth(name, Font::Large) <= 62) g.text((Gfx::W - g.textWidth(name, Font::Large)) / 2, 12, name, c, Font::Large);
+  else g.text((Gfx::W - g.textWidth(name)) / 2, 13, name, c);
+  // Linie in Profilfarbe wächst von der Mitte nach außen
+  const int half = t * 2 < 28 ? int(t * 2) : 28;
+  g.fillRect(Gfx::W / 2 - half, 22, 2 * half, 1, c);
+  return true;
+}
+
 // --- Abschalten (SPEC 14.3) -----------------------------------------------------
 
 void Runtime::beginShutdown() {
@@ -281,6 +325,7 @@ void Runtime::beginShutdown() {
   shutdownIdleTicks_ = 0;
   menuOpen_ = false;
   noticeTicks_ = 0;
+  greetWait_ = greetTicks_ = 0;
   overlayTicks_ = 0;
   lobby_ = nullptr;
   pickQueue_ = 0;
@@ -490,6 +535,7 @@ int Runtime::run(const RunOptions& opts) {
   pendingEnd_ = false;
   pendingMenu_ = -1;
   menuOpen_ = false;
+  menuCooldown_ = 0;
 
   const GameInfo* direct = nullptr;
   if (opts.gameId) {
@@ -515,6 +561,8 @@ int Runtime::run(const RunOptions& opts) {
   if (settings_.webpadOn || opts.webpad) webpad_.start();  // scheitert es, bleibt die Einstellung
   shuttingDown_ = false;
   noticeTicks_ = 0;
+  greetTicks_ = 0;
+  greetWait_ = direct || !opts.greeting ? 0 : PD_TICK_HZ;  // Direktstart ohne Begrüßung
   hal::app::setActivity(nullptr);
   showResetNotice();
 
@@ -549,12 +597,15 @@ int Runtime::run(const RunOptions& opts) {
     hal::app::heartbeat();
     power_ = hal::power::read();
     if (power_.shutdownPending && !shuttingDown_) beginShutdown();
+    if (menuCooldown_) --menuCooldown_;
 
     if (shuttingDown_) {
       tickShutdown();
     } else if (tickNotice()) {
       // Hinweis nach Neustart verdeckt Launcher bzw. Direktstart
-    } else if (inputSys_.menuComboTriggered()) {
+    } else if (tickGreeting()) {
+      // Begrüßung vor dem Launcher
+    } else if (inputSys_.menuComboTriggered() && menuCooldown_ == 0) {
       if (menuOpen_) closeMenu();
       else openMenu();
     } else if (menuOpen_) {

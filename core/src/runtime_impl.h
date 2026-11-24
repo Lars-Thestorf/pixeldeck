@@ -49,6 +49,7 @@ private:
   void tickGame();
   void showResetNotice();
   bool tickNotice();
+  bool tickGreeting();
   void beginShutdown();
   void tickShutdown();
   void handleSlotEvents();
@@ -80,6 +81,10 @@ private:
   const GameInfo* info_ = nullptr;
   Game* game_ = nullptr;
   bool menuOpen_ = false;
+  // Start+Select wirkt sofort (SPEC 6.2). Kurz nach Öffnen/Schließen zählt es nicht, sonst
+  // macht ein Start, das einen Tick vor Select kommt, das Menü gleich wieder auf bzw. zu.
+  static constexpr uint32_t kMenuCooldownTicks = PD_TICK_HZ / 4;  // [Annahme] 250 ms
+  uint32_t menuCooldown_ = 0;
   const GameInfo* lobby_ = nullptr;   // wartet auf Mitspieler (SPEC 6.4)
 
   const GameInfo* pendingStart_ = nullptr;
@@ -93,6 +98,10 @@ private:
   // Hinweis nach Watchdog-Reset oder Absturz (SPEC 14.2)
   char notice_[3][17] = {};
   uint32_t noticeTicks_ = 0;
+
+  // Begrüßung mit dem Profil des Primärgeräts nach dem Einschalten
+  uint32_t greetWait_ = 0;   // Ticks, die noch auf das Primärgerät gewartet wird
+  uint32_t greetTicks_ = 0;  // Restdauer der Anzeige
 
   // Profilwahl nach dem Join (SPEC 7.1), eine nach der anderen
   uint8_t pickQueue_ = 0;           // Slots, die noch wählen dürfen

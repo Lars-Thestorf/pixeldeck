@@ -14,6 +14,7 @@ struct RunOptions {
   uint32_t    maxTicks = 0;      // 0 = unbegrenzt
   uint32_t    tickWarnUs = 0;    // 0 = keine Warnung bei langsamen Ticks
   bool        webpad = false;    // WebPad für diesen Lauf einschalten (ohne Einstellung)
+  bool        greeting = true;   // Begrüßung mit dem Profil des Primärgeräts vor dem Launcher
 };
 
 // Hauptschleife. Rückgabe: 0 = ok, 2 = Spiel nicht gefunden.

@@ -192,6 +192,7 @@ TEST_CASE("Systemmenü: Profil anlegen über den Editor") {
     testhal::device.state.buttons = b;
   };
   os::RunOptions o;
+  o.greeting = false;
   o.maxTicks = 25;
   CHECK(os::run(o) == 0);
   os::Profiles p;

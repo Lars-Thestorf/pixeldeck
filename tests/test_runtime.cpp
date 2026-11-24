@@ -117,6 +117,31 @@ TEST_CASE("Laufzeit: unbekanntes Spiel, Launcher, Quit") {
   CHECK(testgame::stats.inits == 0);
 }
 
+TEST_CASE("Begrüßung: A schließt sie, erst das nächste A startet") {
+  for (const bool second : {false, true}) {
+    testhal::reset();
+    testhal::clearStorage();
+    testgame::stats = {};
+    testhal::onPoll = second ? [](int f) { testhal::device.state.buttons = f == 3 || f == 6 ? A : 0; }
+                             : [](int f) { testhal::device.state.buttons = f == 3 ? A : 0; };
+    os::RunOptions o;
+    o.maxTicks = 30;
+    CHECK(os::run(o) == 0);
+    CHECK(testgame::stats.inits == (second ? 1 : 0));
+  }
+}
+
+TEST_CASE("Begrüßung endet nach 2 s von selbst") {
+  testhal::reset();
+  testhal::clearStorage();
+  testgame::stats = {};
+  testhal::onPoll = [](int f) { testhal::device.state.buttons = f == 125 ? A : 0; };
+  os::RunOptions o;
+  o.maxTicks = 140;
+  CHECK(os::run(o) == 0);
+  CHECK(testgame::stats.inits == 1);
+}
+
 TEST_CASE("Launcher -> Spiel -> Systemmenü -> Beenden -> Launcher") {
   testhal::reset();
   testhal::clearStorage();
@@ -133,20 +158,40 @@ TEST_CASE("Launcher -> Spiel -> Systemmenü -> Beenden -> Launcher") {
     testhal::device.state.buttons = b;
   };
   os::RunOptions o;
+  o.greeting = false;
   o.maxTicks = 150;
   CHECK(os::run(o) == 0);
   CHECK(testgame::stats.inits == 1);
   CHECK(testgame::stats.shutdowns == 1);
   CHECK(testgame::stats.destroyed == 1);
-  // Spiel lief von Frame 4 bis zum Öffnen des Menüs (~Frame 79), danach nicht mehr
-  CHECK(testgame::stats.ticks > 60);
-  CHECK(testgame::stats.ticks < 80);
+  // Spiel lief von Frame 4 bis Frame 19; das Menü öffnet ohne Haltezeit im ersten Combo-Tick
+  CHECK(testgame::stats.ticks > 10);
+  CHECK(testgame::stats.ticks < 20);
   CHECK(gameTicksAtMenu == testgame::stats.ticks);
 
   // zuletzt gestartetes Spiel steht in den OS-Einstellungen
   os::Settings s;
   REQUIRE(os::loadSettings(s));
   CHECK(std::strcmp(s.lastGame, "testgame") == 0);
+}
+
+TEST_CASE("Start+Select: Start einen Tick früher öffnet das Menü nicht gleich wieder") {
+  testhal::reset();
+  testhal::clearStorage();
+  testgame::stats = {};
+  static int ticksAfterClose;
+  ticksAfterClose = -1;
+  testhal::onPoll = [](int f) {
+    uint16_t b = 0;
+    if (f >= 10 && f < 12) b = START | SELECT;  // Menü auf
+    if (f == 40) b = START;                     // Start schließt ...
+    if (f > 40 && f < 50) b = START | SELECT;   // ... Select kommt einen Tick später
+    if (f == 50) ticksAfterClose = testgame::stats.ticks;
+    testhal::device.state.buttons = b;
+  };
+  CHECK(os::run(direct(80)) == 0);
+  CHECK(ticksAfterClose > 15);                     // Spiel lief nach dem Schließen weiter
+  CHECK(testgame::stats.ticks > ticksAfterClose);  // und ist nicht wieder pausiert
 }
 
 TEST_CASE("Systemmenü: Weiter und Helligkeit werden gespeichert") {
@@ -164,7 +209,7 @@ TEST_CASE("Systemmenü: Weiter und Helligkeit werden gespeichert") {
   };
   CHECK(os::run(direct(200)) == 0);
   CHECK(testgame::stats.shutdowns == 1);
-  CHECK(testgame::stats.ticks > 150);           // lief nach dem Menü weiter
+  CHECK(testgame::stats.ticks > 100);           // lief nach dem Menü weiter (Frame 96-199)
   CHECK(testhal::brightness == os::kBrightnessSteps[7]);
   os::Settings s;
   REQUIRE(os::loadSettings(s));

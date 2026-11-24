@@ -20,6 +20,8 @@ constexpr uint16_t TXT = rgb(200, 200, 200);
 constexpr uint16_t SEL = rgb(255, 210, 0);
 constexpr uint16_t BG = rgb(0, 0, 20);
 constexpr uint16_t FRAME = rgb(50, 50, 110);
+constexpr uint16_t SILVER = DIM;                // Platz 2: das bisherige Grau wirkt am Panel silbern
+constexpr uint16_t BRONZE = rgb(180, 90, 30);   // Platz 3 [Annahme], am Gerät prüfen
 
 ScoreTable g_scores;  // Launcher und Systemmenü, nie gleichzeitig aktiv
 QrCode g_qr;          // WebPad-QR-Ansicht, ca. 1,1 KB
@@ -534,7 +536,8 @@ void SystemMenu::tickScores(Context& ctx) {
     const ScoreEntry& e = g_scores.e[i];
     const int y = 7 + row * 6;
     std::snprintf(buf, sizeof buf, "%d", i + 1);
-    g.text(7 - g.textWidth(buf), y, buf, i == 0 ? SEL : DIM);
+    const uint16_t rankColor = i == 0 ? SEL : i == 1 ? SILVER : i == 2 ? BRONZE : FRAME;
+    g.text(7 - g.textWidth(buf), y, buf, rankColor);
     g.text(10, y, e.name, rt_.profiles().find(e.profileId) ? rt_.profiles().color(e.profileId) : TXT);
     std::snprintf(buf, sizeof buf, "%d", int(e.score));
     g.text(Gfx::W - g.textWidth(buf), y, buf, TXT);

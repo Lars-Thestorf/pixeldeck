@@ -103,7 +103,7 @@ private:
 
   uint8_t joined_ = 0, lost_ = 0, returned_ = 0, expired_ = 0;
   int  comboHeld_ = 0;
-  int  comboHoldTicks_ = 60;  // ca. 1 s bei 60 Hz
+  int  comboHoldTicks_ = 1;   // sofort: im Spiel zählt jeder Tick bis zur Pause
   bool comboLatched_ = false;
   bool comboFired_ = false;
 };
