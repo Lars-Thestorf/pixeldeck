@@ -158,7 +158,7 @@ var wantProfile = stored === null ? GUEST : (parseInt(stored, 10) & 255);
 
 var ws = null, connected = false, noReconnect = false;
 var pingSeq = 0, pingAt = 0, lastPong = 0, rtt = -1;
-var palette = [], profiles = [], slot = GUEST, curProfile = GUEST, firstList = true, newColor = 0;
+var palette = [], profiles = [], slot = GUEST, curProfile = GUEST, slotColor = GUEST, firstList = true, newColor = 0;
 
 // --- Verbindung ---------------------------------------------------------------
 function connect() {
@@ -168,7 +168,7 @@ try { ws = new WebSocket("ws://" + location.host + "/ws"); } catch (e) { ws = nu
 ws.binaryType = "arraybuffer";
 ws.onopen = function () { connected = true; lastPong = Date.now(); hello(); setStatus(); };
 ws.onclose = function () {
-ws = null; connected = false; slot = GUEST; setStatus();
+ws = null; connected = false; slot = GUEST; slotColor = GUEST; setStatus();
 if (!noReconnect) setTimeout(connect, 1000);
 };
 ws.onerror = function () { try { ws.close(); } catch (e) {} };
@@ -197,7 +197,7 @@ for (var i = 0; i < d[2]; i++) palette.push(rgb565(d[3 + 2 * i] | (d[4 + 2 * i] 
 if (d.length > 3 + 2 * d[2]) setLang(d[3 + 2 * d[2]] === 1 ? "de" : "en");
 break;
 case 0x82: // SLOT
-slot = d[1]; curProfile = d[2]; setStatus();
+slot = d[1]; curProfile = d[2]; slotColor = d.length > 3 ? d[3] : GUEST; setStatus();
 break;
 case 0x83: // RUMBLE
 if (navigator.vibrate) navigator.vibrate(d[1] | (d[2] << 8));
@@ -249,7 +249,7 @@ var st = $("st");
 if (!connected) { st.textContent = L("conn"); st.style.background = "#222"; st.style.color = "#888"; $("hint").style.display = "none"; return; }
 var joined = slot !== GUEST;
 st.textContent = (joined ? "P" + (slot + 1) + " " : "") + pname(curProfile);
-st.style.background = joined ? pcolor(curProfile) : "#222";
+st.style.background = joined ? (palette[slotColor] || pcolor(curProfile)) : "#222";
 st.style.color = joined ? "#000" : "#ccc";
 $("hint").style.display = joined ? "none" : "block";
 }

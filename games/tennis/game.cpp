@@ -18,9 +18,11 @@ constexpr float CPU_SPEED = 0.62f;
 constexpr float BALL_START = 0.75f, BALL_MAX = 2.0f;
 constexpr int SERVE_DELAY = 50;
 
-// Schläger in Profilfarbe. Gast, CPU oder gleiche Farbe auf beiden
-// Seiten: feste Seitenfarbe.
+// Schläger in Spielerfarbe (Profil oder Gastfarbe vom OS). Gleiche Farbe auf
+// beiden Seiten: feste Seitenfarben. Die CPU ist hellgrau, das gibt es in der
+// Spielerpalette nicht.
 constexpr uint16_t COL_P[2] = {rgb(80, 200, 255), rgb(255, 150, 40)};
+constexpr uint16_t COL_CPU = rgb(170, 170, 170);
 constexpr uint16_t NET = rgb(45, 45, 45);
 
 constexpr Sfx kHit{Wave::Square, 520, 520, 40, 160, 128, 0, 10};
@@ -138,12 +140,10 @@ private:
   }
 
   static void paddleColors(Context& ctx, bool human2, uint16_t out[2]) {
-    Player& p0 = ctx.input.player(0);
-    Player& p1 = ctx.input.player(1);
-    const bool own0 = p0.hasProfile(), own1 = human2 && p1.hasProfile();
-    const bool same = own0 && own1 && p0.color() == p1.color();
-    out[0] = own0 && !same ? p0.color() : COL_P[0];
-    out[1] = own1 && !same ? p1.color() : COL_P[1];
+    const uint16_t c0 = ctx.input.player(0).color();
+    const uint16_t c1 = human2 ? ctx.input.player(1).color() : COL_CPU;
+    out[0] = c0 != c1 ? c0 : COL_P[0];
+    out[1] = c0 != c1 ? c1 : COL_P[1];
   }
 
   void draw(Context& ctx, bool human2) {

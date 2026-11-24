@@ -75,7 +75,7 @@ private:
     hal::input::RawInput state{};
     uint16_t latch = 0;             // seit dem letzten Tick gedrückte Buttons
     uint32_t lastSeen = 0;
-    uint8_t  sentSlot = 0xFE, sentProfile = 0xFE;
+    uint8_t  sentSlot = 0xFE, sentProfile = 0xFE, sentColor = 0xFE;
     uint32_t sentRev = 0;
     bool     revSent = false;
     bool     timedOut = false;      // Timeout schon gemeldet (Diagnose)

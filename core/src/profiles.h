@@ -35,6 +35,7 @@ public:
   int indexOf(uint8_t id) const;          // -1, wenn nicht vorhanden
 
   // Name/Farbe für eine Profil-ID; unbekannte ID und Gast -> "GAST" / Weiß.
+  // Für Spieler in Slots InputSystem::slotColor() nehmen (Gäste haben dort eine Farbe).
   const char* name(uint8_t id) const;
   uint16_t color(uint8_t id) const;
 

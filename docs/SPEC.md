@@ -1,6 +1,6 @@
 # pixeldeck - Spezifikation
 
-Stand: 2026-11-24, Version 0.11 (Spiele: Snake und Tennis in Profilfarbe, Snake langsamer, Tennis-Mittellinie zentriert, Stapel-Vorschau am Schacht; Version 0.10: Sprache der Oberfläche einstellbar, Englisch oder Deutsch, Vorgabe Englisch, siehe 12.4; Version 0.9: Begrüßung mit Profil nach dem Einschalten, Podestfarben in der Rekordliste, Start+Select ohne Haltezeit; Version 0.8: Snake mit 1-4 Spielern und Powerup-Modus, Simulator-Option `--fuzz-players`; Version 0.7: Festlegungen aus M6 eingearbeitet: WebPad mit Access Point, Captive Portal, Protokoll, Controller-Seite, PC-Server; M5 Audio steht noch aus; Version 0.6: Festlegungen aus M4: Slots, Lobby, Profile, Highscores, Tastaturlayouts, Gamepads; Version 0.5: Festlegungen und Messwerte aus M3; Version 0.4: M1 und M2; Version 0.2: Registry per CMake, WebPad-Protokoll im Core und Profilwahl beim Join im laufenden Spiel bestätigt)
+Stand: 2026-11-24, Version 0.12 (Gäste bekommen eine eigene Farbe aus der Palette, siehe 7.1, WebPad-SLOT mit Farbindex; Version 0.11: Spiele: Snake und Tennis in Profilfarbe, Snake langsamer, Tennis-Mittellinie zentriert, Stapel-Vorschau am Schacht; Version 0.10: Sprache der Oberfläche einstellbar, Englisch oder Deutsch, Vorgabe Englisch, siehe 12.4; Version 0.9: Begrüßung mit Profil nach dem Einschalten, Podestfarben in der Rekordliste, Start+Select ohne Haltezeit; Version 0.8: Snake mit 1-4 Spielern und Powerup-Modus, Simulator-Option `--fuzz-players`; Version 0.7: Festlegungen aus M6 eingearbeitet: WebPad mit Access Point, Captive Portal, Protokoll, Controller-Seite, PC-Server; M5 Audio steht noch aus; Version 0.6: Festlegungen aus M4: Slots, Lobby, Profile, Highscores, Tastaturlayouts, Gamepads; Version 0.5: Festlegungen und Messwerte aus M3; Version 0.4: M1 und M2; Version 0.2: Registry per CMake, WebPad-Protokoll im Core und Profilwahl beim Join im laufenden Spiel bestätigt)
 
 pixeldeck ist ein kleines "Betriebssystem" mit Spielen für eine selbstgebaute Spielekonsole (ESP32 + 64x32 RGB-LED-Matrix). Derselbe C++-Code läuft nativ auf dem ESP32 und als Simulator am PC. Dieses Dokument beschreibt alles oberhalb der Hardware-Ansteuerung; die HAL wird hier nur als Schnittstelle spezifiziert.
 
@@ -296,7 +296,7 @@ public:
   Stick left() const;
   Stick right() const;
   const char* name() const;                 // Profilname oder "GUEST" bzw. "GAST"
-  uint16_t color() const;                   // Profilfarbe (Gast: weiß)
+  uint16_t color() const;                   // Profilfarbe bzw. Gastfarbe (0.12)
   bool hasProfile() const;                  // false für Gast (0.11)
   void rumble(uint16_t ms);                 // No-Op, wenn das Gerät es nicht kann
 };
@@ -351,6 +351,7 @@ Umgesetzt (M4): Anzeige Spielname, "A: MITSPIELEN", "n/minPlayers" und je Slot b
 - Lokal auf der Konsole gespeichert, kein Netz-Account. Max. **16 Profile**.
 - Profil = **Name** (max. 8 Zeichen) + **Farbe** aus fester Palette (**[Annahme]** 8 Farben).
 - **Gast** gibt es immer, Name "GUEST" bzw. auf Deutsch "GAST" (0.10).
+- **Gastfarbe** (0.12): Gäste bekommen eine Farbe aus der Profilpalette, die kein anderer belegter Slot trägt. Vorzugsfarbe je Slot grün, orange, cyan, pink; ist sie belegt, die nächste freie in Palettenreihenfolge. Profile behalten ihre Farbe und haben Vorrang, Gäste wählen in Slot-Reihenfolge. Die Farbe ergibt sich aus der aktuellen Slotbelegung; tritt ein Profil mit der Farbe eines Gasts bei, wechselt der Gast. Gilt überall, wo Spieler farbig erscheinen: Statuszeile, Lobby, SPIELER, Begrüßung, Beitritts-Overlay, Profilwahl (Vorschau), `Player::color()`, WebPad-Statuszeile. `InputSystem::slotColor()`/`colorIndex()`.
 - Anlegen, Umbenennen, Löschen im Systemmenü, ohne Schutz.
 - Auswahl beim Join:
   - **WebPad:** Auswahl oder Neuanlage auf dem Handy. Handy merkt sich das Profil, danach genügt A.
@@ -672,7 +673,7 @@ Konsole → Client:
 | Typ | Name | Inhalt |
 |---|---|---|
 | `0x81` | WELCOME | Version `u8`, Anzahl Farben `u8`, Palette als RGB565 `u16` je Farbe, Sprache `u8` (0 Englisch, 1 Deutsch; seit 0.10, auch erneut bei Umstellung) |
-| `0x82` | SLOT | Slot (`0xFF` = nicht beigetreten), Profil-ID (im Slot bzw. gewünscht) |
+| `0x82` | SLOT | Slot (`0xFF` = nicht beigetreten), Profil-ID (im Slot bzw. gewünscht), Farbindex des Slots (`0xFF` = nicht beigetreten; seit 0.12, auch Gäste haben eine Farbe, neu gesendet bei Änderung) |
 | `0x83` | RUMBLE | Dauer ms `u16` |
 | `0x84` | PROFILES | Anzahl `u8`, je Profil: ID, Farbindex, Name (8 Byte) |
 | `0x85` | PROFILE_SET | Profil-ID, die das Handy übernehmen soll (Systemmenü, neu angelegt) |
@@ -862,11 +863,11 @@ pixeldeck/
 | **M6 WebPad** | AP, Captive Portal, WebSocket-Protokoll, Controller-Seite, Rumble, auch am PC (umgesetzt vor M5) |
 
 Startspiele (eigene Designs, keine Nachbildungen bestehender Spiele):
-- **Snake** - 1-4P. Tempo: Zugintervall 10 Ticks minus Länge/8, mindestens 3 (0.11, vorher 8) **[Annahme]**. Schlangen in Profilfarbe; Gäste und doppelte Farben bekommen die Slotfarbe, ein Gast allein das klassische Grün (0.11). Vor dem Start Modus wählen (Links/Rechts, wird im Spielstand gemerkt):
+- **Snake** - 1-4P. Tempo: Zugintervall 10 Ticks minus Länge/8, mindestens 3 (0.11, vorher 8) **[Annahme]**. Schlangen in Spielerfarbe (0.11); haben zwei Profile dieselbe Farbe, bekommen beide die Slotfarbe (0.12). Vor dem Start Modus wählen (Links/Rechts, wird im Spielstand gemerkt):
   - **KLASSIK**: nur Futter. Highscore nur allein im Klassik-Modus **[Annahme]**, damit Powerup- und Mehrspielerrunden die Liste nicht verzerren.
   - **POWER**: zusätzlich alle 3-7 s ein Powerup (max. 2 gleichzeitig, liegt 10 s, blinkt vor dem Verschwinden), +2 Punkte, wirkt nur auf den Fresser: blau = langsamer (6 s, Zugintervall x1,5), gelb = schneller (6 s, x2/3; hebt "langsamer" auf und umgekehrt), weiß = unverwundbar (5 s: durch alle Körper hindurch, Wände führen auf die Gegenseite; andere sterben weiterhin an diesem Körper), violett = unsichtbar (6 s, nur der Kopf ist zu sehen, der Körper bleibt Hindernis). Restzeit als Leiste unter der Punktezahl. Werte sind **[Annahme]**, nach Spieltest anpassen.
-  - Ab 2 Spielern: Slotfarben (grün, orange, cyan, pink) als Ersatz für Gäste und doppelte Profilfarben, Startreihen abwechselnd von links und rechts, Countdown 2,5 s. Wand, Körper oder zwei Köpfe auf demselben Feld töten; Züge eines Ticks werden gemeinsam aufgelöst (Slot-Reihenfolge ohne Vorteil). Tote Körper bleiben 1 s als Hindernis. Letzter Überlebender gewinnt, Siege werden bis zum Moduswechsel gezählt; sterben alle gleichzeitig: unentschieden. Ab 3 Spielern liegen 2 Futter. Beitritt wirkt ab der nächsten Runde.
-- **Tennis** (`tennis`) - 1-2P; ohne zweiten Spieler steuert die CPU die rechte Seite. Erster mit 7 Punkten gewinnt. Schläger in Profilfarbe, Gast, CPU oder gleiche Farbe: Seitenfarbe blau/orange; Mittellinie vertikal zentriert (0.11).
+  - Ab 2 Spielern: Startreihen abwechselnd von links und rechts, Countdown 2,5 s. Wand, Körper oder zwei Köpfe auf demselben Feld töten; Züge eines Ticks werden gemeinsam aufgelöst (Slot-Reihenfolge ohne Vorteil). Tote Körper bleiben 1 s als Hindernis. Letzter Überlebender gewinnt, Siege werden bis zum Moduswechsel gezählt; sterben alle gleichzeitig: unentschieden. Ab 3 Spielern liegen 2 Futter. Beitritt wirkt ab der nächsten Runde.
+- **Tennis** (`tennis`) - 1-2P; ohne zweiten Spieler steuert die CPU die rechte Seite. Erster mit 7 Punkten gewinnt. Schläger in Spielerfarbe, CPU hellgrau, bei gleicher Farbe Seitenfarben blau/orange (0.12); Mittellinie vertikal zentriert (0.11).
 - **Fallblock-Spiel STAPEL** (`stapel`, englisch STACK) - Zweierpaare farbiger Blöcke fallen in einen 6x10-Schacht; 3 oder mehr gleiche Farben waagerecht oder senkrecht lösen sich auf, Ketten zählen mehrfach. Highscore, Text, Spielstand (wird in `onShutdown` gesichert und beim nächsten Start fortgesetzt). Vorschau des nächsten Paars direkt rechts neben dem Schacht (0.11).
 - später ein **4-Spieler-Partyspiel** mit Lichtspuren als Zugpferd für das WebPad
 

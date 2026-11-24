@@ -27,7 +27,6 @@ constexpr int NP = Input::MAX_PLAYERS;
 constexpr int MAX_ITEMS = 4;
 
 constexpr uint16_t FIELD = rgb(0, 18, 6);
-constexpr uint16_t HEAD = rgb(140, 255, 140);
 constexpr uint16_t FOOD = rgb(255, 50, 60);
 
 // Powerups. Reihenfolge = Effekt-Index; Item-Typ 0 ist Futter, 1..4 die Powerups.
@@ -43,8 +42,8 @@ constexpr int MAX_POWERUPS = 2;
 constexpr int COUNTDOWN = 150;
 constexpr int DEATH_TICKS = 60;  // so lange blinkt ein toter Körper und bleibt Hindernis
 
-// Schlangen tragen die Profilfarbe. Gäste und doppelte Farben bekommen die feste Slotfarbe, damit alle
-// Schlangen unterscheidbar bleiben.
+// Schlangen tragen die Spielerfarbe (Profil oder vom OS vergebene Gastfarbe).
+// Haben zwei Profile dieselbe Farbe, bekommen beide die feste Slotfarbe.
 struct Rgb { uint8_t r, g, b; };
 constexpr Rgb SNAKE_RGB[NP] = {{40, 220, 60}, {255, 120, 0}, {0, 190, 255}, {255, 70, 170}};
 
@@ -397,23 +396,15 @@ private:
   // Farbe je Slot für diesen Frame festlegen (Profil kann im Systemmenü wechseln).
   void updateColors(Context& ctx) {
     for (int i = 0; i < NP; ++i) {
-      Player& p = ctx.input.player(i);
-      const uint16_t c = p.color();
-      bool own = s_[i].active && p.hasProfile();
+      const uint16_t c = ctx.input.player(i).color();
+      bool own = true;
       for (int j = 0; j < NP && own; ++j)
-        if (j != i && s_[j].active && ctx.input.player(j).hasProfile() &&
-            ctx.input.player(j).color() == c)
-          own = false;
-      profile_[i] = own;
+        if (j != i && s_[j].active && ctx.input.player(j).color() == c) own = false;
       color_[i] = own ? fromRgb565(c) : SNAKE_RGB[i];
     }
   }
 
   uint16_t snakeColor(int slot, int i, int len) const {
-    if (!multi_ && !profile_[slot]) {  // Gast allein: klassisches Grün
-      if (i == 0) return HEAD;
-      return rgb(20, uint8_t(220 - (i * 120 / (len > 1 ? len : 1))), 40);
-    }
     const Rgb c = color_[slot];
     if (i == 0)  // Kopf heller
       return rgb(uint8_t((c.r + 255) / 2), uint8_t((c.g + 255) / 2), uint8_t((c.b + 255) / 2));
@@ -602,7 +593,6 @@ private:
   uint8_t occ_[GH][GW];  // Anzahl Segmente je Feld (Geister dürfen überlappen)
   uint8_t wins_[NP] = {};
   Rgb color_[NP] = {};
-  bool profile_[NP] = {};
   uint8_t mask_ = 1;
   bool multi_ = false;
   int spawnTimer_ = 0;

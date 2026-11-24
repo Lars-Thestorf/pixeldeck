@@ -126,7 +126,7 @@ void Launcher::tick(Context& ctx) {
   for (int s = 0; s < InputSystem::SLOTS; ++s) {
     const InputSystem::Slot& sl = is.slot(s);
     uint16_t c = DIM;
-    if (sl.used && (sl.present || (ctx.tick() / 15) % 2)) c = rt_.profiles().color(sl.profileId);
+    if (sl.used && (sl.present || (ctx.tick() / 15) % 2)) c = is.slotColor(s);
     g.fillRect(56 + 2 * s, 1, 1, 3, c);
   }
 
@@ -205,7 +205,7 @@ void Lobby::tick(Context& ctx) {
   for (int s = 0; s < m.maxPlayers; ++s) {
     const InputSystem::Slot& sl = is.slot(s);
     const bool on = sl.used && sl.present;
-    if (on) g.fillRect(x0 + 6 * s, 27, 4, 4, rt_.profiles().color(sl.profileId));
+    if (on) g.fillRect(x0 + 6 * s, 27, 4, 4, is.slotColor(s));
     else g.rect(x0 + 6 * s, 27, 4, 4, DIM);
   }
   g.text(0, 27, "B", DIM);
@@ -373,7 +373,7 @@ void SystemMenu::tickPlayers(Context& ctx) {
       g.text(12, y, "-", DIM);
       continue;
     }
-    const uint16_t pc = rt_.profiles().color(sl.profileId);
+    const uint16_t pc = is.slotColor(s);
     g.fillRect(8, y, 2, 5, pc);
     g.text(12, y, rt_.profiles().name(sl.profileId), sel ? SEL : TXT);
     const char* tag = deviceTag(sl.type);

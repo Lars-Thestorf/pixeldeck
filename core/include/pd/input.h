@@ -28,7 +28,7 @@ public:
   Stick left() const { return left_; }
   Stick right() const { return right_; }
   const char* name() const { return name_; }  // Profilname oder "GUEST"/"GAST"
-  uint16_t color() const { return color_; }   // Profilfarbe (Gast: weiß)
+  uint16_t color() const { return color_; }   // Spielerfarbe: Profil oder vom OS vergebene Gastfarbe
   bool hasProfile() const { return hasProfile_; }  // false für Gast
   void rumble(uint16_t ms);                   // No-Op, wenn das Gerät es nicht kann
 

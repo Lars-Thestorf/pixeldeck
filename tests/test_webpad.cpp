@@ -97,9 +97,10 @@ TEST_CASE("WebPad: HELLO, Beitritt per A mit Profil vom Handy (SPEC 13.2, 7.1)")
   CHECK(std::string(reinterpret_cast<const char*>(&pl[4]), 4) == "ANNA");
 
   const auto sl = lastOf(5, WebPad::SLOT);
-  REQUIRE(sl.size() == 3);
+  REQUIRE(sl.size() == 4);
   CHECK(sl[1] == 1);  // Slot 2
   CHECK(sl[2] == anna);
+  CHECK(sl[3] == 4);  // Farbindex des Profils
   CHECK(testgame::stats.p2Seen);
 
   os::ScoreTable t;
@@ -126,10 +127,11 @@ TEST_CASE("WebPad: Timeout trennt, gleiches Token bekommt seinen Slot zurück (S
   CHECK(os::run(direct("testgame", 130)) == 0);
   // erste Verbindung: Slot 2, dann (nach Timeout) Rückkehr über eine neue Verbindung
   const auto s5 = lastOf(5, WebPad::SLOT);
-  REQUIRE(s5.size() == 3);
+  REQUIRE(s5.size() == 4);
   CHECK(s5[1] == 1);
+  CHECK(s5[3] < os::kProfileColors);  // auch der Gast hat eine Farbe
   const auto s6 = lastOf(6, WebPad::SLOT);
-  REQUIRE(s6.size() == 3);
+  REQUIRE(s6.size() == 4);
   CHECK(s6[1] == 1);  // ohne erneutes A wieder im reservierten Slot
 }
 

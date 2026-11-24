@@ -65,6 +65,15 @@ public:
   void profileRemoved(uint8_t profileId);
   bool profileInUse(uint8_t profileId, int exceptSlot) const;
 
+  // Farbe eines Slots als Index in kProfileColor (SPEC 7.1): Profile behalten ihre
+  // Farbe, Gäste bekommen die erste Palettenfarbe, die kein anderer belegter Slot
+  // trägt (Suche ab einer Vorzugsfarbe je Slot). colorIndexFor() rechnet so, als
+  // hätte Slot s das Profil profileId (Vorschau in der Profilwahl).
+  uint8_t colorIndexFor(int s, uint8_t profileId) const;
+  uint8_t colorIndex(int s) const { return colorIndexFor(s, slots_[s].profileId); }
+  uint16_t slotColor(int s) const;    // RGB565; freier oder ungültiger Slot: kGuestColor
+  uint16_t colorFor(int s, uint8_t profileId) const;
+
   // Eingabe eines einzelnen Geräts (für die Profilwahl beim Join), nullptr = unbekannt
   const Player* devicePlayer(uint32_t id) const;
   const char* deviceName(uint32_t id) const;
@@ -91,7 +100,7 @@ private:
     Player   view;              // Gerätesicht mit Kanten (devicePlayer)
   };
 
-  void fill(Player& p, const Dev* d, bool sad, uint8_t profileId) const;
+  void fill(Player& p, const Dev* d, bool sad, uint8_t profileId, uint16_t color) const;
   void assign(int s, const Dev& d);
 
   Dev  devs_[MAX_DEVICES] = {};

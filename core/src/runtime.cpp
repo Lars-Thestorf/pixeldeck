@@ -315,7 +315,7 @@ bool Runtime::tickGreeting() {
 
   const uint8_t id = inputSys_.slot(s).profileId;
   const char* name = profiles_.name(id);
-  const uint16_t c = profiles_.color(id);
+  const uint16_t c = inputSys_.slotColor(s);
   Gfx& g = gfx_;
   g.clear();
   const char* hello = tr("HELLO", "HALLO");
@@ -382,10 +382,10 @@ void Runtime::handleSlotEvents() {
           // Profil kommt vom Handy (SPEC 7.1), keine Auswahl auf der Matrix
           const uint8_t want = webpad_.requestedProfile(sl.deviceId);
           if (!inputSys_.profileInUse(want, s)) inputSys_.setSlotProfile(s, want);
-          showOverlay(profiles_.color(sl.profileId), "P%d %s", s, profiles_.name(sl.profileId));
+          showOverlay(inputSys_.slotColor(s), "P%d %s", s, profiles_.name(sl.profileId));
         } else if (s != prim) {
           // im Spiel ohne Auswahl mit dem letzten Profil des Geräts, sonst Profilwahl
-          if (game_) showOverlay(profiles_.color(sl.profileId), "P%d %s", s, profiles_.name(sl.profileId));
+          if (game_) showOverlay(inputSys_.slotColor(s), "P%d %s", s, profiles_.name(sl.profileId));
           else pickQueue_ |= bit;
         }
       }
@@ -461,7 +461,7 @@ void Runtime::tickPicker() {
   g.text((Gfx::W - g.textWidth(buf)) / 2, 0, buf, color::WHITE);
   const uint8_t id = ids[pickSel_ < n ? pickSel_ : 0];
   const char* name = profiles_.name(id);
-  const uint16_t c = profiles_.color(id);
+  const uint16_t c = inputSys_.colorFor(s, id);
   if (g.textWidth(name, Font::Large) <= 54) g.text((Gfx::W - g.textWidth(name, Font::Large)) / 2, 11, name, c, Font::Large);
   else g.text((Gfx::W - g.textWidth(name)) / 2, 12, name, c);
   if (n > 1) {

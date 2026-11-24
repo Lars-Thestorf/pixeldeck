@@ -241,3 +241,32 @@ TEST_CASE("Slots: Profil des Geräts wird übernommen, doppelte Profile vermiede
   CHECK(r.is.slot(0).profileId == os::kGuest);
   CHECK_FALSE(r.game.player(0).hasProfile());
 }
+
+TEST_CASE("Slots: Gäste bekommen eine eigene Farbe, Profile haben Vorrang") {
+  static Rig r;
+  r = Rig{};
+  static os::Profiles pr;
+  pr.clear();
+  r.is.setProfiles(&pr);
+  testhal::extraCount = 2;
+  r.tick();
+  r.press(0);
+  r.press(1);
+  // drei Gäste: Vorzugsfarben grün, orange, cyan
+  CHECK(r.is.colorIndex(0) == 3);
+  CHECK(r.is.colorIndex(1) == 1);
+  CHECK(r.is.colorIndex(2) == 4);
+  CHECK(r.game.player(1).color() == os::kProfileColor[1]);
+  CHECK(r.is.slotColor(3) == os::kGuestColor);  // frei
+
+  // Profil mit Orange in Slot 0: der Gast in Slot 1 weicht auf die nächste freie Farbe aus
+  const uint8_t orange = pr.create("anna", 1);
+  r.is.setSlotProfile(0, orange);
+  r.tick();
+  CHECK(r.is.colorIndex(0) == 1);
+  CHECK(r.is.colorIndex(1) == 2);
+  CHECK(r.is.colorIndex(2) == 4);
+  // Vorschau in der Profilwahl: Slot 1 als Gast bzw. mit Profil
+  CHECK(r.is.colorFor(1, os::kGuest) == os::kProfileColor[2]);
+  CHECK(r.is.colorFor(1, orange) == os::kProfileColor[1]);
+}

@@ -203,7 +203,7 @@ void WebPad::handle(Client& c, const uint8_t* d, size_t n) {
       c.state = hal::input::RawInput{0, 0, 0, 0, 0};
       c.latch = 0;
       c.lastSeen = tick_;
-      c.sentSlot = c.sentProfile = 0xFE;
+      c.sentSlot = c.sentProfile = c.sentColor = 0xFE;
       c.revSent = false;
       sendWelcome(c);
       if (first)
@@ -368,11 +368,13 @@ void WebPad::sync() {
     const int s = is.slotOfDevice(c.deviceId);
     const uint8_t slot = s < 0 ? 0xFF : uint8_t(s);
     const uint8_t prof = s < 0 ? c.profile : is.slot(s).profileId;
-    if (slot != c.sentSlot || prof != c.sentProfile) {
-      const uint8_t m[3] = {SLOT, slot, prof};
-      send(c, m, 3);
+    const uint8_t col = s < 0 ? 0xFF : is.colorIndex(s);  // Gastfarbe kann sich ändern
+    if (slot != c.sentSlot || prof != c.sentProfile || col != c.sentColor) {
+      const uint8_t m[4] = {SLOT, slot, prof, col};
+      send(c, m, 4);
       c.sentSlot = slot;
       c.sentProfile = prof;
+      c.sentColor = col;
     }
   }
 }

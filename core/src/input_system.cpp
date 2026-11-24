@@ -127,9 +127,43 @@ const char* InputSystem::deviceName(uint32_t id) const {
   return "?";
 }
 
-void InputSystem::fill(Player& p, const Dev* d, bool sad, uint8_t profileId) const {
+namespace {
+// Vorzugsfarbe eines Gasts je Slot: grün, orange, cyan, pink
+constexpr uint8_t kGuestPreferred[InputSystem::SLOTS] = {3, 1, 4, 7};
+}  // namespace
+
+uint8_t InputSystem::colorIndexFor(int s, uint8_t profileId) const {
+  const Profile* own = profiles_ ? profiles_->find(profileId) : nullptr;
+  if (own) return uint8_t(own->color % kProfileColors);
+  // Belegt: Farben aller Profil-Slots und der Gäste in kleineren Slots (die zuerst wählen)
+  uint32_t taken = 0;
+  for (int j = 0; j < SLOTS; ++j) {
+    if (j == s || !slots_[j].used) continue;
+    const Profile* p = profiles_ ? profiles_->find(slots_[j].profileId) : nullptr;
+    if (p) taken |= 1u << (p->color % kProfileColors);
+    else if (j < s) taken |= 1u << colorIndexFor(j, slots_[j].profileId);
+  }
+  const uint8_t start = kGuestPreferred[s >= 0 && s < SLOTS ? s : 0];
+  for (int k = 0; k < kProfileColors; ++k) {
+    const uint8_t i = uint8_t((start + k) % kProfileColors);
+    if (!(taken & (1u << i))) return i;
+  }
+  return start;
+}
+
+uint16_t InputSystem::colorFor(int s, uint8_t profileId) const {
+  if (s < 0 || s >= SLOTS) return kGuestColor;
+  return kProfileColor[colorIndexFor(s, profileId)];
+}
+
+uint16_t InputSystem::slotColor(int s) const {
+  if (s < 0 || s >= SLOTS || !slots_[s].used) return kGuestColor;
+  return colorFor(s, slots_[s].profileId);
+}
+
+void InputSystem::fill(Player& p, const Dev* d, bool sad, uint8_t profileId, uint16_t color) const {
   p.name_ = profiles_ ? profiles_->name(profileId) : tr("GUEST", "GAST");
-  p.color_ = profiles_ ? profiles_->color(profileId) : kGuestColor;
+  p.color_ = color;
   p.hasProfile_ = profiles_ && profiles_->find(profileId);
   if (!d || !d->live) {
     p.connected_ = false;
@@ -276,7 +310,7 @@ void InputSystem::apply(Input& game, Input& os, const hal::input::Device* in, si
   for (Dev& d : devs_) {
     if (!d.live) continue;
     const int s = slotOfDevice(d.id);
-    fill(d.view, &d, true, s >= 0 ? slots_[s].profileId : kGuest);
+    fill(d.view, &d, true, s >= 0 ? slots_[s].profileId : kGuest, slotColor(s));
   }
   for (int s = 0; s < SLOTS; ++s) {
     Player& p = game.players_[s];
@@ -285,12 +319,12 @@ void InputSystem::apply(Input& game, Input& os, const hal::input::Device* in, si
     if (sl.used && sl.present && s < maxPlayers)
       for (const Dev& x : devs_)
         if (x.live && x.id == sl.deviceId) d = &x;
-    fill(p, d, stickAsDpad, sl.used ? sl.profileId : kGuest);
+    fill(p, d, stickAsDpad, sl.used ? sl.profileId : kGuest, slotColor(s));
     if (!d) p.deviceId_ = sl.used ? sl.deviceId : 0;
   }
   const int ps = primary ? slotOfDevice(primary->id) : -1;
-  fill(os.players_[0], primary, true, ps >= 0 ? slots_[ps].profileId : kGuest);
-  for (int s = 1; s < SLOTS; ++s) fill(os.players_[s], nullptr, true, kGuest);
+  fill(os.players_[0], primary, true, ps >= 0 ? slots_[ps].profileId : kGuest, slotColor(ps));
+  for (int s = 1; s < SLOTS; ++s) fill(os.players_[s], nullptr, true, kGuest, kGuestColor);
 }
 
 void InputSystem::resetEdges(Input& game, Input& os) {
