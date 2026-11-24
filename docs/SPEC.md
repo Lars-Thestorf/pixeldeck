@@ -24,7 +24,11 @@ Kennzeichnung: **[Annahme]** = begründete Festlegung ohne Messung oder ausdrüc
 
 Pins: R1 32, G1 33, B1 27, R2 14, G2 12, B2 13, A 2, B 0, C 4, D 16, LAT 5, OE 18, CLK 17 (E entfällt, 1/16 Scan).
 Treiber `ESP32-HUB75-MatrixPanel-DMA` 3.1.0 (MIT) unverändert, Konfiguration: Double Buffer,
-`HZ_10M` (in 3.1.0 = 8 MHz), `clkphase = false`, 8 Bit Farbtiefe, kein CIE-Mapping.
+`HZ_20M` (`PD_PANEL_20MHZ`), `min_refresh_rate` 240 (`PD_PANEL_MIN_REFRESH`), `clkphase = false`,
+8 Bit Farbtiefe, kein CIE-Mapping. Die Lib wählt damit Transition-Bit 1 (Bits 0 und 1 gleich
+gewichtet), rechnerisch ca. 275 Hz Bildwiederholung. Vorher mit `HZ_10M` (real 10 MHz, Teiler 4)
+waren es ca. 137 Hz, PWM bei dunklen Pixeln war bei Bewegung sichtbar. 480 (Transition-Bit 2,
+ca. 500 Hz) am Gerät verglichen und verworfen, kostet Abstufung in dunklen Tönen.
 Die FM6126A-Register setzt die HAL vor `begin()` selbst per Bitbang (REG1 = alle Bits 1, REG2 = 0);
 mit den Upstream-Werten hatte das Panel einen Rotstich. Der Lib wird deshalb `SHIFTREG` übergeben.
 Gamma-Korrektur in der HAL: RGB565 → 8 Bit je Kanal per Tabelle mit `PD_PANEL_GAMMA`

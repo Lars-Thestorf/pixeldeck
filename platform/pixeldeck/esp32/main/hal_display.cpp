@@ -14,6 +14,20 @@
 #define PD_PANEL_GAMMA 2.2f  // am Gerät bestätigt (M3)
 #endif
 
+// Panel-Takt: Die Lib kennt real nur 10 MHz (HZ_10M, Teiler 4) und 20 MHz (HZ_20M, Teiler 2).
+// Bei 10 MHz lief das Panel mit ca. 137 Hz Bildwiederholung; dunkle Pixel (nur LSB gesetzt)
+// leuchten einmal pro Bild, das PWM war bei Augen-/Konsolenbewegung sichtbar.
+#ifndef PD_PANEL_20MHZ
+#define PD_PANEL_20MHZ 1
+#endif
+// Mindest-Refresh für die Lib. Reicht er nicht, legt sie untere Bitebenen zusammen
+// (lsbMsbTransitionBit), das kostet Abstufung in dunklen Tönen. 240 ergibt bei 20 MHz
+// dieselbe Bitaufteilung wie bei 10 MHz (Transition-Bit 1) mit ca. 275 Hz; 480 ergibt
+// Transition-Bit 2 (Bits 0-2 gleich gewichtet) mit ca. 500 Hz.
+#ifndef PD_PANEL_MIN_REFRESH
+#define PD_PANEL_MIN_REFRESH 240
+#endif
+
 namespace {
 
 const char* TAG = "display";
@@ -88,7 +102,9 @@ bool displayHwInit() {
   HUB75_I2S_CFG cfg(W, H, 1, kPins);
   cfg.driver = HUB75_I2S_CFG::SHIFTREG;  // FM6126A-Init schon erledigt (fm6126aInit)
   cfg.double_buff = true;
-  cfg.i2sspeed = HUB75_I2S_CFG::HZ_10M;
+  cfg.i2sspeed = PD_PANEL_20MHZ ? HUB75_I2S_CFG::HZ_20M : HUB75_I2S_CFG::HZ_10M;
+  cfg.latch_blanking = PD_PANEL_20MHZ ? 8 : 4;  // wie Lib-Automatik; Konstruktor lief mit 8 MHz
+  cfg.min_refresh_rate = PD_PANEL_MIN_REFRESH;
   cfg.clkphase = false;
   g_panel = new MatrixPanel_I2S_DMA(cfg);
   if (!g_panel->begin()) {
@@ -97,6 +113,8 @@ bool displayHwInit() {
     g_panel = nullptr;
     return false;
   }
+  ESP_LOGI(TAG, "Panel-Takt %d MHz, Mindest-Refresh %d Hz", PD_PANEL_20MHZ ? 20 : 10,
+           PD_PANEL_MIN_REFRESH);
   g_panel->setBrightness8(128);
   g_panel->clearScreen();
   g_panel->flipDMABuffer();
