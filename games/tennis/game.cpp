@@ -18,6 +18,8 @@ constexpr float CPU_SPEED = 0.62f;
 constexpr float BALL_START = 0.75f, BALL_MAX = 2.0f;
 constexpr int SERVE_DELAY = 50;
 
+// Schläger in Profilfarbe. Gast, CPU oder gleiche Farbe auf beiden
+// Seiten: feste Seitenfarbe.
 constexpr uint16_t COL_P[2] = {rgb(80, 200, 255), rgb(255, 150, 40)};
 constexpr uint16_t NET = rgb(45, 45, 45);
 
@@ -135,10 +137,22 @@ private:
     ctx.input.player(side).rumble(40);
   }
 
+  static void paddleColors(Context& ctx, bool human2, uint16_t out[2]) {
+    Player& p0 = ctx.input.player(0);
+    Player& p1 = ctx.input.player(1);
+    const bool own0 = p0.hasProfile(), own1 = human2 && p1.hasProfile();
+    const bool same = own0 && own1 && p0.color() == p1.color();
+    out[0] = own0 && !same ? p0.color() : COL_P[0];
+    out[1] = own1 && !same ? p1.color() : COL_P[1];
+  }
+
   void draw(Context& ctx, bool human2) {
     Gfx& g = ctx.gfx;
+    uint16_t col[2];
+    paddleColors(ctx, human2, col);
     g.clear();
-    for (int y = 0; y < Gfx::H; y += 4) g.vline(Gfx::W / 2, y, 2, NET);
+    // 8 Striche à 2 px, oben und unten je 1 px Rand: vertikal zentriert
+    for (int y = 1; y < Gfx::H; y += 4) g.vline(Gfx::W / 2, y, 2, NET);
 
     char buf[8];
     std::snprintf(buf, sizeof buf, "%d", score_[0]);
@@ -146,8 +160,8 @@ private:
     std::snprintf(buf, sizeof buf, "%d", score_[1]);
     g.text(Gfx::W / 2 + 4, 1, buf, rgb(70, 70, 70), Font::Large);
 
-    g.fillRect(1, int(py_[0] + 0.5f), 2, PH, COL_P[0]);
-    g.fillRect(61, int(py_[1] + 0.5f), 2, PH, COL_P[1]);
+    g.fillRect(1, int(py_[0] + 0.5f), 2, PH, col[0]);
+    g.fillRect(61, int(py_[1] + 0.5f), 2, PH, col[1]);
 
     if (state_ == State::Play || (state_ == State::Serve && (timer_ / 6) % 2 == 0))
       g.fillRect(int(bx_ + 0.5f), int(by_ + 0.5f), 2, 2, color::WHITE);
@@ -157,8 +171,8 @@ private:
       const char* who = w == 0 ? ctx.tr("P1 WINS", "P1 GEWINNT")
                               : (human2 ? ctx.tr("P2 WINS", "P2 GEWINNT") : ctx.tr("CPU WINS", "CPU GEWINNT"));
       g.fillRect(4, 11, 56, 15, color::BLACK);
-      g.rect(4, 11, 56, 15, COL_P[w]);
-      g.text(32 - g.textWidth(who) / 2, 13, who, COL_P[w]);
+      g.rect(4, 11, 56, 15, col[w]);
+      g.text(32 - g.textWidth(who) / 2, 13, who, col[w]);
       const char* again = ctx.tr("A = AGAIN", "A = NOCHMAL");
       if (timer_ > 60) g.text(32 - g.textWidth(again) / 2, 19, again, color::GRAY);
     }

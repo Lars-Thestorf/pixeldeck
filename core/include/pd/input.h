@@ -28,7 +28,8 @@ public:
   Stick left() const { return left_; }
   Stick right() const { return right_; }
   const char* name() const { return name_; }  // Profilname oder "GUEST"/"GAST"
-  uint16_t color() const { return color_; }   // Profilfarbe
+  uint16_t color() const { return color_; }   // Profilfarbe (Gast: weiß)
+  bool hasProfile() const { return hasProfile_; }  // false für Gast
   void rumble(uint16_t ms);                   // No-Op, wenn das Gerät es nicht kann
 
 private:
@@ -39,6 +40,7 @@ private:
   uint32_t deviceId_ = 0;
   const char* name_ = "GUEST";
   uint16_t color_ = 0xFFFF;
+  bool hasProfile_ = false;
 };
 
 // Snapshot, vor jedem tick() gebildet und während des Ticks konstant (SPEC 6.2).

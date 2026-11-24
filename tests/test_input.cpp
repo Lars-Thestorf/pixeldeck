@@ -230,11 +230,14 @@ TEST_CASE("Slots: Profil des Geräts wird übernommen, doppelte Profile vermiede
   CHECK(r.is.slot(0).profileId == lars);
   CHECK(std::string(r.game.player(0).name()) == "LARS");
   CHECK(r.game.player(0).color() == os::kProfileColor[2]);
+  CHECK(r.game.player(0).hasProfile());
   r.press(0);
   CHECK(r.is.slot(1).profileId == os::kGuest);  // LARS ist schon vergeben
   CHECK(std::string(r.game.player(1).name()) == "GUEST");  // Vorgabe Englisch
+  CHECK_FALSE(r.game.player(1).hasProfile());
 
   r.is.profileRemoved(lars);
   r.tick();
   CHECK(r.is.slot(0).profileId == os::kGuest);
+  CHECK_FALSE(r.game.player(0).hasProfile());
 }

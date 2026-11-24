@@ -324,13 +324,14 @@ private:
         if (ys[i] >= 0) drawCell(g, FX + xs[i] * CELL, FY + ys[i] * CELL, kColors[cur_[i]]);
     }
 
-    // Vorschau des nächsten Paars
-    g.rect(53, 0, 10, 7, BORDER);
-    drawCell(g, 55, 2, kColors[next_[0]]);
-    drawCell(g, 58, 2, kColors[next_[1]]);
+    // Vorschau des nächsten Paars direkt neben dem Schacht, Beschriftung rechts daneben
+    constexpr int NX = FX + COLS * CELL + 2;  // 1 px Abstand zum Schachtrahmen
+    g.rect(NX, 0, 10, 7, BORDER);
+    drawCell(g, NX + 2, 2, kColors[next_[0]]);
+    drawCell(g, NX + 5, 2, kColors[next_[1]]);
 
     char buf[16];
-    g.text(HUD, 1, ctx.tr("SCORE", "PUNKTE"), LABEL);
+    g.text(NX + 12, 1, ctx.tr("SCORE", "PUNKTE"), LABEL);
     std::snprintf(buf, sizeof buf, "%ld", long(score_));
     g.text(HUD, 7, buf, color::WHITE);
     std::snprintf(buf, sizeof buf, "LV %d", level());

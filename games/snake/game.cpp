@@ -43,10 +43,15 @@ constexpr int MAX_POWERUPS = 2;
 constexpr int COUNTDOWN = 150;
 constexpr int DEATH_TICKS = 60;  // so lange blinkt ein toter Körper und bleibt Hindernis
 
-// Schlangenfarben im Mehrspieler nach Slot (wie Tennis feste Farben, damit zwei
-// Gäste unterscheidbar bleiben).
+// Schlangen tragen die Profilfarbe. Gäste und doppelte Farben bekommen die feste Slotfarbe, damit alle
+// Schlangen unterscheidbar bleiben.
 struct Rgb { uint8_t r, g, b; };
 constexpr Rgb SNAKE_RGB[NP] = {{40, 220, 60}, {255, 120, 0}, {0, 190, 255}, {255, 70, 170}};
+
+constexpr Rgb fromRgb565(uint16_t c) {
+  const uint8_t r = uint8_t((c >> 11) & 0x1F), g = uint8_t((c >> 5) & 0x3F), b = uint8_t(c & 0x1F);
+  return {uint8_t(r << 3 | r >> 2), uint8_t(g << 2 | g >> 4), uint8_t(b << 3 | b >> 2)};
+}
 
 constexpr Sfx kEat{Wave::Square, 600, 900, 60, 180, 64, 0, 20};
 constexpr Sfx kPower{Wave::Square, 400, 1200, 120, 180, 96, 0, 30};
@@ -207,7 +212,7 @@ private:
   }
 
   static int interval(const Body& b) {
-    int v = 8 - b.len / 8;  // schneller mit wachsender Länge
+    int v = 10 - b.len / 8;  // schneller mit wachsender Länge
     if (v < 3) v = 3;
     if (b.has(Fast)) v = v * 2 / 3;
     if (b.has(Slow)) v = v * 3 / 2;
@@ -389,12 +394,27 @@ private:
     return rgb(uint8_t(c.r * pct / 100), uint8_t(c.g * pct / 100), uint8_t(c.b * pct / 100));
   }
 
+  // Farbe je Slot für diesen Frame festlegen (Profil kann im Systemmenü wechseln).
+  void updateColors(Context& ctx) {
+    for (int i = 0; i < NP; ++i) {
+      Player& p = ctx.input.player(i);
+      const uint16_t c = p.color();
+      bool own = s_[i].active && p.hasProfile();
+      for (int j = 0; j < NP && own; ++j)
+        if (j != i && s_[j].active && ctx.input.player(j).hasProfile() &&
+            ctx.input.player(j).color() == c)
+          own = false;
+      profile_[i] = own;
+      color_[i] = own ? fromRgb565(c) : SNAKE_RGB[i];
+    }
+  }
+
   uint16_t snakeColor(int slot, int i, int len) const {
-    if (!multi_) {
+    if (!multi_ && !profile_[slot]) {  // Gast allein: klassisches Grün
       if (i == 0) return HEAD;
       return rgb(20, uint8_t(220 - (i * 120 / (len > 1 ? len : 1))), 40);
     }
-    const Rgb c = SNAKE_RGB[slot];
+    const Rgb c = color_[slot];
     if (i == 0)  // Kopf heller
       return rgb(uint8_t((c.r + 255) / 2), uint8_t((c.g + 255) / 2), uint8_t((c.b + 255) / 2));
     return scaled(c, 100 - i * 55 / (len > 1 ? len : 1));
@@ -474,7 +494,7 @@ private:
       if (!b.active) continue;
       const int x = k * w;
       std::snprintf(buf, sizeof buf, "%ld", long(b.score));
-      g.text(x + 1, 0, buf, b.alive ? scaled(SNAKE_RGB[i], 100) : rgb(60, 60, 60));
+      g.text(x + 1, 0, buf, b.alive ? scaled(color_[i], 100) : rgb(60, 60, 60));
       drawFxBar(ctx, b, x + 1, w - 2);
       ++k;
     }
@@ -486,6 +506,7 @@ private:
 
   void draw(Context& ctx) {
     Gfx& g = ctx.gfx;
+    updateColors(ctx);
     g.clear();
     g.fillRect(0, TOP, Gfx::W, GH * CELL, FIELD);
     if (state_ != State::Menu) {
@@ -543,7 +564,7 @@ private:
           centered(g, 18, ctx.tr("A = AGAIN", "A = NOCHMAL"), color::GRAY);
           centered(g, 24, ctx.tr("B = MODE", "B = MODUS"), color::GRAY);
         } else {
-          const uint16_t wc = winner_ >= 0 ? scaled(SNAKE_RGB[winner_], 100) : color::GRAY;
+          const uint16_t wc = winner_ >= 0 ? scaled(color_[winner_], 100) : color::GRAY;
           g.fillRect(2, 4, 60, 28, color::BLACK);
           g.rect(2, 4, 60, 28, wc);
           if (winner_ >= 0) {
@@ -568,7 +589,7 @@ private:
             if (!s_[i].active) continue;
             if (k++) x += g.text(x, 18, ":", color::GRAY) + 1;
             std::snprintf(buf, sizeof buf, "%d", wins_[i]);
-            x += g.text(x, 18, buf, scaled(SNAKE_RGB[i], 100)) + 1;
+            x += g.text(x, 18, buf, scaled(color_[i], 100)) + 1;
           }
           centered(g, 25, ctx.tr("A=NEW B=MODE", "A=NEU B=MODUS"), color::GRAY);
         }
@@ -580,6 +601,8 @@ private:
   Item items_[MAX_ITEMS];
   uint8_t occ_[GH][GW];  // Anzahl Segmente je Feld (Geister dürfen überlappen)
   uint8_t wins_[NP] = {};
+  Rgb color_[NP] = {};
+  bool profile_[NP] = {};
   uint8_t mask_ = 1;
   bool multi_ = false;
   int spawnTimer_ = 0;

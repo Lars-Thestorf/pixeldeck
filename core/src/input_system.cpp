@@ -130,6 +130,7 @@ const char* InputSystem::deviceName(uint32_t id) const {
 void InputSystem::fill(Player& p, const Dev* d, bool sad, uint8_t profileId) const {
   p.name_ = profiles_ ? profiles_->name(profileId) : tr("GUEST", "GAST");
   p.color_ = profiles_ ? profiles_->color(profileId) : kGuestColor;
+  p.hasProfile_ = profiles_ && profiles_->find(profileId);
   if (!d || !d->live) {
     p.connected_ = false;
     p.cur_ = p.prev_ = 0;
