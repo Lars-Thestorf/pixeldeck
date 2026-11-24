@@ -130,6 +130,33 @@ TEST_CASE("WebPad: Timeout trennt, gleiches Token bekommt seinen Slot zurück (S
   CHECK(s6[1] == 1);  // ohne erneutes A wieder im reservierten Slot
 }
 
+TEST_CASE("WebPad: Funkloch über 1 s lässt Tasten los, getrennt erst nach 2,5 s") {
+  testhal::reset();
+  testhal::clearStorage();
+  enableWebPad();
+  testgame::stats = {};
+  static bool heldBefore, connectedStale, releasedStale, connectedLate;
+  heldBefore = connectedStale = releasedStale = false;
+  connectedLate = true;
+  testhal::onPoll = [](int f) {
+    if (f == 2) { testhal::netOpen(5); testhal::netMsg(5, hello(1, os::kGuest)); }
+    if (f == 5) testhal::netMsg(5, state(A));   // Beitritt
+    if (f == 6) testhal::netMsg(5, state(0));
+    if (f == 10) testhal::netMsg(5, state(A));  // A halten, dann schweigt das Handy
+    if (f == 30) heldBefore = testgame::stats.p2Buttons & A;
+    if (f == 10 + 90) {                         // 1,5 s still
+      connectedStale = testgame::stats.p2Connected;
+      releasedStale = testgame::stats.p2Buttons == 0;
+    }
+    if (f == 10 + 170) connectedLate = testgame::stats.p2Connected;  // 2,8 s still
+  };
+  CHECK(os::run(direct("testgame", 190)) == 0);
+  CHECK(heldBefore);
+  CHECK(connectedStale);
+  CHECK(releasedStale);
+  CHECK_FALSE(connectedLate);
+}
+
 TEST_CASE("WebPad: Profil auf dem Handy anlegen und wählen") {
   testhal::reset();
   testhal::clearStorage();

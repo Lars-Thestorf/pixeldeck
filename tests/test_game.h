@@ -11,6 +11,8 @@ struct Stats {
   uint32_t counter = 0;
   // Mehrspieler und Highscores
   bool p2Seen = false;
+  bool p2Connected = false;  // Zustand von Spieler 2 im letzten Tick
+  uint16_t p2Buttons = 0;
   int submitAtTick = -1, submitSlot = 0;
   int32_t submitValue = 0;
 };

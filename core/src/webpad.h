@@ -19,7 +19,11 @@ class WebPad {
 public:
   static constexpr int MAX_CLIENTS = 8;            // Verbindungen, auch ohne HELLO
   static constexpr uint8_t kVersion = 1;           // Protokollversion
-  static constexpr uint32_t TIMEOUT_TICKS = 60;    // 1 s ohne Nachricht = getrennt
+  // Funklöcher von 1-2 s kommen am Handy beim Spielen vor (verlorenes Paket, TCP wiederholt mit
+  // wachsender Wartezeit). Deshalb zweistufig: nach STALE_TICKS gelten die Tasten als
+  // losgelassen (nichts bleibt hängen), getrennt wird erst nach TIMEOUT_TICKS.
+  static constexpr uint32_t STALE_TICKS = 60;      // 1 s ohne Nachricht = Tasten los
+  static constexpr uint32_t TIMEOUT_TICKS = 150;   // 2,5 s ohne Nachricht = getrennt
 
   // Nachrichtentypen (SPEC 13.2)
   enum : uint8_t {

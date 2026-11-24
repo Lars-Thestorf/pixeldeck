@@ -311,8 +311,13 @@ size_t WebPad::devices(hal::input::Device* out, size_t max) {
     d.type = hal::input::DeviceType::WebPad;
     std::snprintf(d.name, sizeof d.name, "WEBPAD %d", k & 15);
     d.connected = true;
-    d.state = c.state;
-    d.state.buttons = uint16_t(c.state.buttons | c.latch);
+    if (tick_ - c.lastSeen > STALE_TICKS) {  // Funkloch: nichts festhalten
+      d.state = hal::input::RawInput{0, 0, 0, 0, 0};
+      d.state.buttons = c.latch;
+    } else {
+      d.state = c.state;
+      d.state.buttons = uint16_t(c.state.buttons | c.latch);
+    }
     c.latch = 0;
   }
   return n;

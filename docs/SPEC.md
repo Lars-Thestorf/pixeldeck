@@ -667,11 +667,16 @@ Konsole → Client:
 
 - Nach HELLO schickt die Konsole WELCOME, PROFILES und SLOT; PROFILES und SLOT danach bei jeder Änderung.
 - Geräte-ID = FNV-1a über das Token, Bits 31/30 = 01 (kollidiert nicht mit Tastaturen und SDL-Gamepads).
-- Höchstens 8 Verbindungen gleichzeitig im Core; ist die Tabelle voll, wird eine Verbindung verdrängt, die seit über 1 s schweigt, sonst REJECT 1.
+- Höchstens 8 Verbindungen gleichzeitig im Core; ist die Tabelle voll, wird eine Verbindung verdrängt, die seit über 2,5 s schweigt, sonst REJECT 1.
 
 - STATE wird bei jeder Änderung und zusätzlich alle **100 ms** als Heartbeat gesendet. Kein Ereignisstrom, damit keine "hängenden" Tasten.
-- Kein Heartbeat für **1 s** = getrennt (Slot bleibt reserviert, siehe 6.3).
-- Latenz **[Annahme]** 10-50 ms; für Party-Spiele ausreichend, für präzise Geschicklichkeitsspiele grenzwertig. Nicht gemessen.
+- Zweistufiger Timeout (seit 2026-11-24, vorher 1 s = getrennt): nach **1 s** ohne Nachricht gelten Tasten und Sticks des Handys als losgelassen, getrennt wird erst nach **2,5 s** (Slot bleibt reserviert, siehe 6.3). Grund: Funklöcher von 1-2 s beim Spielen, siehe Messung unten.
+- Latenz, gemessen 2026-11-24 (Büro, 2,4 GHz voll belegt; PC mit MT7921 und ein Android-Handy mit Firefox bzw. Captive Portal):
+  - Konsole: Empfang bis Antwort im Median 11 ms (Warten auf den nächsten Tick der Hauptschleife), CPU-Kern 0 bei 6-25 %. Der ESP ist nicht der Engpass, sein WLAN-Power-Save ist aus (im AP-Modus ohnehin wirkungslos).
+  - Handy → Konsole: meist pünktlich, aber in 55-90 % der 5-s-Fenster geht ein TCP-Segment verloren (gemessen mit einem vorübergehenden lwIP-Hook, der Segmente hinter einer Lücke zählte). TCP wiederholt es erst nach Duplicate-ACKs bzw. Timeout, dazwischen staut sich alles: Lücken von meist 300-500 ms, einzeln 1-3 s. Daher die schwankende Anzeige und die früheren "Disconnects".
+  - Konsole → PC: Der MT7921 schläft trotz `power_save off`, 85 % der Pakete laufen über die Power-Save-Queue des AP (Rückweg 70-650 ms). Beim Android-Handy nur 3 %.
+  - Ohne messbare Wirkung ausprobiert: 20 statt 40 MHz, Kanal 1 statt 6, kleinste Helligkeit, mehr WLAN-Empfangspuffer (12/32 statt 6/16). A-MPDU-Empfang aus machte es eher schlechter (nicht sicher, die Läufe streuen stark).
+  - Offen: Verluste kommen aus der Luft bzw. vom Handy. Denkbar wäre, den Heartbeat zu verdichten (TCP bemerkt Verluste dann früher); nicht getestet.
 - Sticks schickt die Seite gebündelt alle 16 ms, Tasten sofort.
 - PING/PONG (ergänzt nach dem ersten Handy-Test): Das Handy zeigt die Antwortzeit unter PROFIL an und "HAKT x s" in Rot, wenn 1,5 s keine Antwort kam. Vorher merkte das Handy Aussetzer gar nicht, nur die Konsole.
 - Diagnose (vorläufig): Core loggt Lücken über 250 ms, Timeouts und ersetzte Verbindungen; der ESP loggt je WebSocket Lücken direkt beim Empfang, Schließen, langsames Senden und alle 5 s Frames, größte Lücke, Queue-Füllstand, RSSI und Heap-Minimum.

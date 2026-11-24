@@ -27,6 +27,8 @@ public:
     ++testgame::stats.ticks;
     ctx.gfx.pixel(0, 0, 0x1234);
     if (ctx.input.player(1).connected()) testgame::stats.p2Seen = true;
+    testgame::stats.p2Connected = ctx.input.player(1).connected();
+    testgame::stats.p2Buttons = ctx.input.player(1).buttons();
     if (int(ctx.tick()) == testgame::stats.submitAtTick)
       ctx.scores.submit(testgame::stats.submitSlot, testgame::stats.submitValue);
   }
